@@ -223,7 +223,9 @@ input.room-input{font-size:20px;letter-spacing:5px;text-transform:uppercase}
       </div></div>
       <button class="btn ghost" id="btn-online" onclick="toggleCascade('online')">🌐 Jogar online ▾</button>
       <div class="cascade" id="cascade-online"><div class="cascade-inner">
-        <button class="btn cascade-item ghost" onclick="openHostModal()">🏠 Criar sala (2 jogadores)</button>
+        <button class="btn cascade-item ghost" onclick="openHostModal(2)">🏠 Sala para 2 jogadores</button>
+        <button class="btn cascade-item ghost" onclick="openHostModal(3)">🏠 Sala para 3 jogadores</button>
+        <button class="btn cascade-item ghost" onclick="openHostModal(4)">🏠 Sala para 4 jogadores</button>
         <button class="btn cascade-item ghost" onclick="openJoinModal()">🔗 Entrar com código</button>
       </div></div>
       <button class="btn ghost" onclick="openProfile()">👤 Meu perfil</button>
@@ -319,9 +321,9 @@ input.room-input{font-size:20px;letter-spacing:5px;text-transform:uppercase}
 <div class="modal-bg" id="host-modal">
   <div class="modal">
     <h3>🏠 Criar sala</h3>
-    <p>Compartilhe este código com o outro jogador</p>
+    <p>Compartilhe este código com os outros jogadores</p>
     <div class="code-box" id="room-code">----</div>
-    <p id="host-status"><span class="status-dot off"></span> Aguardando oponente...</p>
+    <p id="host-status"><span class="status-dot off"></span> Aguardando jogadores...</p>
     <button class="btn ghost" onclick="cancelOnline()" style="width:auto">Cancelar</button>
   </div>
 </div>
@@ -451,7 +453,7 @@ function saveAccounts(){
 }
 function coins(){ return ACC ? (ACC.coins||0) : 0; }
 function hasPower(id){ return !!(ACC && ACC.powers && ACC.powers.indexOf(id)>=0); }
-let G=null, gameMode='bots', mySeat=0, peer=null, conn=null, isHost=false, roomCode='', shieldUsed=false;
+let G=null, gameMode='bots', mySeat=0, peer=null, conn=null, conns=[], isHost=false, roomCode='', shieldUsed=false, onlineMaxPlayers=2;
 
 
 const COLORS=['rosa','amarelo','verde','azul'];
@@ -673,10 +675,15 @@ function newGame(){
       players.push({name:BOT_NAMES[b]||('Robô '+(b+1)),hand:[],isBot:true});
     }
   } else {
-    players=[
-      {name:isHost?((ACC?ACC.name:'Host')):'Host',hand:[],isBot:false},
-      {name:!isHost?((ACC?ACC.name:'Convidado')):'Convidado',hand:[],isBot:false},
-    ];
+    const n = onlineMaxPlayers || 2;
+    players = [];
+    for(let i=0;i<n;i++){
+      let pname = 'Jogador '+(i+1);
+      if(i===0) pname = isHost ? (ACC?ACC.name:'Host') : 'Host';
+      else if(!isHost && i===mySeat) pname = ACC?ACC.name:('Jogador '+(i+1));
+      else pname = 'Jogador '+(i+1);
+      players.push({name:pname, hand:[], isBot:false});
+    }
   }
   for(let i=0;i<7;i++) players.forEach(p=>p.hand.push(deck.pop()));
 
@@ -932,63 +939,185 @@ function botTurn(idx){
   setTimeout(()=>playCard(idx,choice,chosenColor),300);
 }
 
+
 function genCode(){const chars='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';let s='';for(let i=0;i<5;i++)s+=chars[Math.floor(Math.random()*chars.length)];return s}
-function openHostModal(){
+
+function updateHostStatus(){
+  const joined = 1 + conns.filter(c=>c.open).length; // host + guests
+  const el = document.getElementById('host-status');
+  if(!el) return;
+  if(joined >= onlineMaxPlayers){
+    el.innerHTML = '<span class="status-dot on"></span> Sala cheia ('+joined+'/'+onlineMaxPlayers+') — iniciando...';
+  } else {
+    el.innerHTML = '<span class="status-dot on"></span> Aguardando... '+joined+'/'+onlineMaxPlayers+' jogadores';
+  }
+}
+
+function openHostModal(maxP){
+  onlineMaxPlayers = maxP || 2;
+  conns = [];
   document.getElementById('host-modal').classList.add('show');
   document.getElementById('host-status').innerHTML='<span class="status-dot off"></span> Conectando...';
   roomCode=genCode();document.getElementById('room-code').textContent=roomCode;
   isHost=true;mySeat=0;gameMode='online';
+  const hostTitle = document.querySelector('#host-modal h3');
+  if(hostTitle) hostTitle.textContent = '🏠 Sala para '+onlineMaxPlayers+' jogadores';
+  const hostP = document.querySelector('#host-modal p');
+  if(hostP) hostP.textContent = 'Compartilhe este código com os outros jogadores';
   try{
     peer=new Peer('mochi-'+roomCode,{debug:1});
-    peer.on('open',()=>{document.getElementById('host-status').innerHTML='<span class="status-dot on"></span> Sala aberta — aguardando oponente...'});
-    peer.on('connection',c=>{conn=c;setupConn()});
+    peer.on('open',()=>{updateHostStatus()});
+    peer.on('connection',c=>{
+      setupHostConn(c);
+    });
     peer.on('error',err=>{document.getElementById('host-status').textContent='Erro: '+err.type});
   }catch(e){document.getElementById('host-status').textContent='Precisa de internet';showToast('Precisa de internet para multiplayer')}
 }
-function openJoinModal(){document.getElementById('join-modal').classList.add('show');document.getElementById('join-status').textContent='';document.getElementById('join-code').value=''}
+
+function setupHostConn(c){
+  c.on('open',()=>{
+    // assign seat
+    const used = new Set([0]);
+    conns.forEach(x=>{ if(x.seat!=null) used.add(x.seat); });
+    let seat = 1;
+    while(used.has(seat) && seat < onlineMaxPlayers) seat++;
+    if(seat >= onlineMaxPlayers){
+      c.send({type:'full'});
+      c.close();
+      showToast('Sala cheia');
+      return;
+    }
+    conns.push({conn:c, seat, open:true});
+    c.send({type:'welcome', seat, maxPlayers:onlineMaxPlayers, hostName:(ACC?ACC.name:'Host')});
+    updateHostStatus();
+    showToast('Jogador entrou no assento '+(seat+1));
+    // if full, start
+    if(conns.filter(x=>x.open).length >= onlineMaxPlayers-1){
+      setTimeout(()=>startOnlineGame(), 600);
+    }
+  });
+  c.on('data', msg => onNetMsg(msg, c));
+  c.on('close',()=>{
+    const entry = conns.find(x=>x.conn===c);
+    if(entry) entry.open=false;
+    showToast('Um jogador saiu');
+    updateHostStatus();
+  });
+}
+
+function startOnlineGame(){
+  document.getElementById('host-modal').classList.remove('show');
+  document.getElementById('join-modal').classList.remove('show');
+  newGame();
+  showScreen('game-screen');
+  updateCoinUI();
+  renderPowerTags();
+  syncFullState();
+}
+
+function openJoinModal(){
+  document.getElementById('join-modal').classList.add('show');
+  document.getElementById('join-status').textContent='';
+  document.getElementById('join-code').value='';
+}
 function joinRoom(){
   const code=document.getElementById('join-code').value.trim().toUpperCase();
   if(code.length<4){showToast('Código inválido');return}
-  isHost=false;mySeat=1;gameMode='online';roomCode=code;
+  isHost=false;gameMode='online';roomCode=code;conns=[];
   document.getElementById('join-status').textContent='Conectando...';
   try{
     peer=new Peer({debug:1});
-    peer.on('open',()=>{conn=peer.connect('mochi-'+code);setupConn()});
+    peer.on('open',()=>{
+      conn=peer.connect('mochi-'+code);
+      conn.on('open',()=>{
+        document.getElementById('join-status').textContent='Conectado! Aguardando início...';
+        conn.send({type:'hello', name:(ACC?ACC.name:'Jogador')});
+      });
+      conn.on('data', msg => onNetMsg(msg, conn));
+      conn.on('close',()=>{showToast('Desconectado da sala');quitToLobby()});
+    });
     peer.on('error',err=>{document.getElementById('join-status').textContent='Erro: '+err.type});
   }catch(e){document.getElementById('join-status').textContent='Precisa de internet'}
 }
-function setupConn(){
-  conn.on('open',()=>{
-    showToast('Conectado! 🎉');
-    document.getElementById('host-modal').classList.remove('show');
-    document.getElementById('join-modal').classList.remove('show');
-    if(isHost){newGame();showScreen('game-screen');updateCoinUI();renderPowerTags();syncFullState()}
-    else{showScreen('game-screen');updateCoinUI();renderPowerTags();sendMsg({type:'hello'})}
-  });
-  conn.on('data',onNetMsg);
-  conn.on('close',()=>{showToast('Oponente desconectou');quitToLobby()});
-}
-function sendMsg(obj){if(conn&&conn.open)conn.send(obj)}
-function syncFullState(){if(!isHost||!G)return;sendMsg({type:'state',state:JSON.parse(JSON.stringify(G))})}
-function onNetMsg(msg){
-  if(!msg||!msg.type)return;
-  if(msg.type==='state'&&!isHost){G=msg.state;render();return}
-  if(msg.type==='hello'&&isHost){syncFullState();return}
-  if(!isHost)return;
-  if(msg.type==='play'){if(G.turn!==1)return;const card=G.players[1].hand[msg.cardIdx];if(!card)return;if(card.color==='wild'&&!msg.color)return;playCard(1,msg.cardIdx,msg.color||null)}
-  if(msg.type==='draw'){if(G.turn!==1)return;doDraw(1)}
-  if(msg.type==='playDrawn'){
-    if(G.turn!==1)return;const idx=G.players[1].hand.length-1;
-    if(msg.play){const card=G.players[1].hand[idx];if(card.color==='wild'){if(!msg.color)return;playCard(1,idx,msg.color)}else playCard(1,idx,null)}
-    else{advanceTurn({type:'__draw_pass__'});render();syncFullState()}
+
+function sendMsg(obj){
+  if(isHost){
+    // broadcast to all
+    conns.forEach(x=>{ try{ if(x.open && x.conn.open) x.conn.send(obj); }catch(e){} });
+  } else if(conn && conn.open){
+    conn.send(obj);
   }
 }
+function syncFullState(){
+  if(!isHost||!G)return;
+  const payload = {type:'state', state:JSON.parse(JSON.stringify(G)), maxPlayers:onlineMaxPlayers};
+  conns.forEach(x=>{ try{ if(x.open && x.conn.open) x.conn.send(payload); }catch(e){} });
+}
+
+function onNetMsg(msg, fromConn){
+  if(!msg||!msg.type)return;
+  // Guest receives
+  if(!isHost){
+    if(msg.type==='welcome'){
+      mySeat = msg.seat;
+      onlineMaxPlayers = msg.maxPlayers||2;
+      showToast('Você é o jogador '+(mySeat+1)+' — aguarde iniciar');
+      return;
+    }
+    if(msg.type==='full'){ showToast('Sala cheia'); quitToLobby(); return; }
+    if(msg.type==='state'){
+      G = msg.state;
+      if(msg.maxPlayers) onlineMaxPlayers = msg.maxPlayers;
+      document.getElementById('host-modal').classList.remove('show');
+      document.getElementById('join-modal').classList.remove('show');
+      showScreen('game-screen');
+      updateCoinUI();
+      renderPowerTags();
+      render();
+      return;
+    }
+    return;
+  }
+  // Host receives from guests
+  if(msg.type==='hello'){
+    // already handled seat on connection; just ack
+    return;
+  }
+  // Find seat of sender
+  let seat = 1;
+  const entry = conns.find(x=>x.conn===fromConn);
+  if(entry) seat = entry.seat;
+  if(msg.type==='play'){
+    if(G.turn!==seat)return;
+    const card=G.players[seat].hand[msg.cardIdx];
+    if(!card)return;
+    if(card.color==='wild'&&!msg.color)return;
+    playCard(seat,msg.cardIdx,msg.color||null);
+  }
+  if(msg.type==='draw'){
+    if(G.turn!==seat)return;
+    doDraw(seat);
+  }
+  if(msg.type==='playDrawn'){
+    if(G.turn!==seat)return;
+    const idx=G.players[seat].hand.length-1;
+    if(msg.play){
+      const card=G.players[seat].hand[idx];
+      if(card.color==='wild'){if(!msg.color)return;playCard(seat,idx,msg.color)}
+      else playCard(seat,idx,null);
+    } else {
+      advanceTurn({type:'__draw_pass__'});render();syncFullState();
+    }
+  }
+}
+
 function cancelOnline(){
   document.getElementById('host-modal').classList.remove('show');
   document.getElementById('join-modal').classList.remove('show');
+  try{ conns.forEach(x=>{try{x.conn.close()}catch(e){}}); }catch(e){}
   try{if(conn)conn.close()}catch(e){}
   try{if(peer)peer.destroy()}catch(e){}
-  peer=null;conn=null;gameMode='bots';
+  peer=null;conn=null;conns=[];gameMode='bots';onlineMaxPlayers=2;
 }
 
 function showToast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');clearTimeout(t._timer);t._timer=setTimeout(()=>t.classList.remove('show'),1800)}
@@ -1043,7 +1172,7 @@ function render(){
       else if(i===2) icon=IMG.melody||'';
       else icon=IMG.cinna||IMG.hello||'';
     } else icon=IMG.hello||'';
-    const name=gameMode==='online'?'Oponente':p.name;
+    const name=gameMode==='online'?(i===mySeat?'Você':(p.name||('Jogador '+(i+1)))):p.name;
     div.innerHTML=`<img class="face" src="${icon}" alt=""><div class="name">${name}</div><div class="count">${p.hand.length} carta${p.hand.length===1?'':'s'}</div><div class="bubble"></div>`;
     botsRow.appendChild(div);
   }
