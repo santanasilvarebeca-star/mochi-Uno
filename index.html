@@ -200,7 +200,8 @@ input.room-input{font-size:20px;letter-spacing:5px;text-transform:uppercase}
   <div class="card-panel">
     <h2 id="auth-title">Entrar</h2>
     <p id="auth-sub">Entre na sua conta para salvar progresso</p>
-    <input class="name-input" id="login-name" maxlength="16" placeholder="Apelido" autocomplete="username">
+    <input class="name-input" id="login-email" type="email" maxlength="64" placeholder="E-mail" autocomplete="email">
+    <input class="name-input" id="login-name" maxlength="16" placeholder="Apelido (só ao criar conta)" autocomplete="username" style="margin-top:6px;display:none">
     <input class="name-input" id="login-pass" type="password" maxlength="32" placeholder="Senha" autocomplete="current-password" style="margin-top:6px">
     <input class="name-input" id="login-pass2" type="password" maxlength="32" placeholder="Confirmar senha" autocomplete="new-password" style="margin-top:6px;display:none">
     <button class="btn" id="auth-btn" onclick="doAuth()" style="margin-top:10px">Entrar ✨</button>
@@ -339,7 +340,30 @@ input.room-input{font-size:20px;letter-spacing:5px;text-transform:uppercase}
   </div>
 </div>
 
+
+<script src="https://www.gstatic.com/firebasejs/10.14.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.0/firebase-firestore-compat.js"></script>
 <script>
+const firebaseConfig = {
+  apiKey: "AIzaSyBW7KKFvA56JRJU5er8vn77DMR2KDc3o4E",
+  authDomain: "mochi-uno.firebaseapp.com",
+  projectId: "mochi-uno",
+  storageBucket: "mochi-uno.firebasestorage.app",
+  messagingSenderId: "708930448013",
+  appId: "1:708930448013:web:16e4ac7539aca28859d0c4",
+  measurementId: "G-8Z9LPW0XQG"
+};
+let fbReady = false, auth = null, db = null;
+try {
+  firebase.initializeApp(firebaseConfig);
+  auth = firebase.auth();
+  db = firebase.firestore();
+  fbReady = true;
+} catch(e) { console.warn('Firebase init failed', e); }
+</script>
+<script>
+
 window.CARD_IMGS = {
   'rosa_0': 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAcFBQYFBAcGBgYIBwcICxILCwoKCxYPEA0SGhYbGhkWGRgcICgiHB4mHhgZIzAkJiorLS4tGyIyNTEsNSgsLSz/2wBDAQcICAsJCxULCxUsHRkdLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCz/wAARCACUAGQDASIAAhEBAxEB/8QAHAAAAwEAAwEBAAAAAAAAAAAAAAYHBQMECAIB/8QAShAAAQIEAwMGCAwDBgcAAAAAAQIDAAQFEQYSIQcxQRMiNlF0shQyYXGBkZOhFRYXI0JUVZSxwdHSM5LCNURigqLhJENSU3KD8P/EABsBAAEFAQEAAAAAAAAAAAAAAAMAAgQFBgEH/8QAMhEAAQMDAwIEAwcFAAAAAAAAAQACAwQRMQUSIRNBUWFxkRU0UhQiM6GxwdElYnLh8P/aAAwDAQACEQMRAD8AoePsfTUtUHaPR3eR5G6X5hBBUSRqlJ+ja+p33HC2qsxg6rTyy/UZqUprr5zJFSmOTddJJucpuq9xxAvfjHa2d09Naxuh+bcU4qWSqcUVEkuLChYk3vfMoK43tbjG9T5GVrU5jaZqjKHn2CtLanBctAZ7W6rZR6oHlbPcyhHRiFiALm1ySTb/AH+SzRskrpFxN072i/2QfJJXvrdO9ov9kPWzuYemcDyKn1FRTnQknikKIHq3eiGeHbQqubVquKR0ZI4NsKPfJJXvrdO9ov8AZB8kle+t072i/wBkWGCFtCF8bqvEeyj3ySV763TvaL/ZB8kle+t072i/2RYYIW0JfG6rxHso98kle+t072i/2QfJJXvrdO9ov9kWGCFtCXxuq8R7KPfJJXvrdO9ov9kZLM3ifAc6G1B6USpWYtODOy74pNvok2yglJuN1xF3hdx3Smqrg6dS4cqpVBmm1amykAndcbxcem/CEW+CPT6u+V4jqAC08YXfw7XGMRURmoMJyZ7pW2VBRbUN6Tb1jdoQbC8EQOUrFTp7Jak6jNyrZVmKGXlIBPXYHfoII5uR5NAcXkscAOybtknSyZ7Grvoh+qmB6XVJ96bLs3KrmBZ9Mu7kS8P8Qsbwg7JOlkz2NXfRFhjrcKLq0r4qsuYbcBcElJy9PkmpSVbDTDKcqEjgI54I45iYalZdb76w22gXUo8IcqPlx8SVyQQn1TGDqlqap6QhANg8oXKt2oB3cd9/RC/M1CbnL+ETLroKs2VSjlB8g3DfDdytYdKleLvO39VUIIlKFqbWlaFFKkm4INiD1xpymJKnKEWmC8m9yl7n3069/vhbkV+jvA+46/5fyqHBGTSMQytVs3/BmTf5pRvcDqPH8d/njWhyp5InxO2vFiiMzE3ROr9je7hjTjMxN0Tq/Y3u4YS7D+I31C87wQQQFemp62SdLJnsau+iLDEe2SdLJnsau+iLDBG4WH1v5o+gXw66hhlbrhyobSVKNr2A1MIWI6rNTiuUfaclZJs8wODKL9ZJ0v8Ah676GMKopUwmntLIQgBToH0idQD5hr6fJCdtHfcXXJGTzgBSUIaQq+VTjjgQL23bx6I7lPoYOiWyPGQT6AfyuzKuycyrWoybSRvK3kg+q8bUtK0U6+HMzBtY2eTa/XoYVnKZh44mGEwzOon1tqCKhygyF0Iz5Cjqym+7ha9xeEx1lbDq2nU5XG1FCk23EaGHtYCrmnb9ucWseW28u3urIZGkLSQlTYuN4d3e+OnM0lnLeVmkKIHirWLn0xNqVh+pVpdpGULiQbFZ5qB5zDSxsyqBaBcnZRCuoJKvfpCLAE2VjKZ1nT8+60W5aaS98007yiDcFAJII4giHqhVZ6da5CcZcamkJvdSCkOAWBI8uouPL6o/UcPVjCy0zeiUoN0vsK0B4A9Xph8qc8+JalTray28UFdxwJCbwwjaolZG2o2MaQb3sR24T3GZibonV+xvdwx25CcRPyDM0gWDib26juI9BuI6mJuidX7G93DHVnY2lsoacg/uvO8EEEBXpaetknSyZ7GrvoiuzDyZaWdfWCUtIKyBvsBeJFsk6WTPY1d9EUbFz/JUFSMt+WcSi9930r/6ffBBhYzVI+rXhnjZJjCF1GpAOKup5ZUtW6/E/nGFtODpxFLuSwSZiXQzMMpUbJWtt3OkE8ASm3phuw8z/GfKepCTf0n8oUNp7imK648kJUtqR5RKTxICyB6SI60cKeS2Sp6ZwGu/RfPxlwkrFJxR4TNfCTSC78Erl1JdQ8UZLlVsoFuN7a3ub2jt4XwW7VnRVa1fknTygbOhcJNyT1D8Y0MO4AwlUsDUwO06UnHHZdDq55BAfW6oBS1cqk5grMevhutpHbn8KTkrRpp1eL8SzHgzC1spTNIaICUkgEoQCs6bybnzw5pICpGVzogWx5PF/JaczivC9EqbVEfq0lJTdgEy6lZct/FB4JvwBIvGxNTkrIpCpuZYlkncXnUt3/mIjyI/NPOSaJh/NNuznzjzjhKi6tepKjxJPX1Q94PxlhehUlEvX8Imp1UpKVTd0TKphPEEvHmaDxRod4sYAyYE8qRV6VJG0OYdxOfK69BvMtTDC2nUJcbcTZSSLhQMY1fkkIprBaGVMsMoT/h0H5D3xj7J6wxVcBS7TSlhUg67LFlw3WygLUWkq11PJlGut7eSG2bQlxGRQulQII8kG4I4UCmc+GcA8W7LoYKmznmZMkkEcqkWFhwP9PqjaxN0Tq/Y3u4YTKI4qTxFLZ0XUHeSIvuJ5vuvDnibonV+xvdww0YU6ujDatrh3svO8EEEDW4T1sk6WTPY1d9EPGN3VhmTaB5ilKURbeRYD8TCPsk6WTPY1d9EOuOP7j/7P6YeMLLVIvqbfT9iuGiNhFMQoXutRUfXb8oQdqTzzVfvKi80qWbaYFr/ADq1lCP9SgfRaKBR/wCyWf8AN3jCZtIw06/L1KqS8pV52e+ZdlUSbq8oLJDiswBASNNON9RrDhhQ5Z+jM5/+QT5QKHJ4Zw/KUentpblpNsNpsLZiN6j5Sbk+eNDyboVw/UK3s4DmGZ0ylRm5QOSb04+JhaMxuFLUMwJIuL62PXYxtiYcpdAEzU3g87KywcmXGWyc6kpuspSNdSDpD8BUWUvTmyvBs74UtVDZZdmQczjKlJKCdcyBeyTfW4H4mJNibZFX6ZiBApktN1uTNiw6jkkqQeKXBoAbi+YaEdR0i7UOuylflnH5VLqUtOcmsOAXvYK0KSQdFDcT1Gxjq0AYiQ9VziFySLJm1eAGW3pl7aZ/L/v5IG6NrgpsFdNTuu0pb2R0VygU+uU2caSiqsTw8L5NRWixaQprKbbsh9d4epj6P/3VEoo7Momv4rqzlHq65Nua5JmdRU1rQFMthKsyg6FKuvjYj6PAiKg06t+nyrruUuLaSpWUWFyBeHAWFguM3ySdZ3dLE+VSlaccZUQtCw4knWx0V+MO+JuidX7G93DCRWP7We/y90Q74m6J1fsb3cMNHdWlbmA/92XneCCCBrZJ62SdLJnsau+iKBjNrPSGnA3mLbouq18oIPHgL290T/ZJ0smexq76IqtXlDPUiZl0glS0XSAQLqGoGvlAggwsfqMgj1Brj5JSw+4DKut63SvMfSP9o2KjJuz0mZdmdfkSsjM9LhPKBN9QkkHKT/1WuOEK9HmSxUEpKrId5p8/D3/jDmBr1Q5uFE1Vm2UHxUpqHwfs7qjrOCp+VmZ+aOd+huq5fPlF1Ol3NmYsCSSolJJ3XJj7w9txla0+zKrwzVETDyFKSJdxt5JSkXJTcpJ01ta9uEK2MJuj0/ZJJYaclpdnESJoS77RbDb7RBWpx6+hUFI0z3IVn11OiCZtxPgamAiUdk02afl08k5fMTmUoaqPOIv1aROp6N9Q0lqz81SyFwDlfKhtYodCYb5eh16WDqiltBpwaStVrkAlVr21jKlsfvbQlJpEslGGqdUELbE1PFLj80nVLjbIHzaVixBzKJF7hMR5dYn5yqSs9U3vhZcsq6Gp0Z2iOKSgWFjx4nSH7Z9TWcP4cnK7WJFt8zbyXKU0/wA/Ku3PdSg6JF0pOfecumliWy0UsEYMtrolNKKuXpwjK2sTU6l4TlkYfoDs2xK5Ap6VVMKcZB3hQCrkKJuTYgHUkRT2BamSYO/kU90REJqYem5h1+ZUVuukqWo7yYslQmDK0CXWlVlqaQlJ8pSPyvEZwsFsKyiFMyCFuTe/qsSSAnMQs2bLiHJgKKSm905rm482+HbE3ROr9je7hhawfKF6rqmCDll0E3BHjHQA+jN6oZcTdE6v2N7uGBDCgV7waljB2t+q87wQQQNbZPWyTpZM9jV30RYYj2yTpZM9jV30RYYI3Cw+t/NH0CnuI6b8HVVeRNmHue3YaDrG62h4dRENKX21vLaStJcatmSDqLi4jtVilNVWRU0pI5VIJaXuyq8/V1xLMYTNUw/jRVUlSppt9CQldroWALFKhDmjldZ/UGsivZwBz3wuztRoNOrVTw0ay+9J0sOPsOTTSwjkXXEJ5EqJBASSlSddLqHXGQ7sClFLQqWxLOpaNjd6VbcJH/kMoMaR2lJmZJUvPUdiZQ4nI4hSwULB3gpIOh6oxEYoEgy4zQqZJ0Zt03V4Om6vMCdw8g0iQyWWPhhsg/AaiV1nNCyads+puGZSVqGIpx2dnCFKFKW2lNyFkJK1Anm2sSNL3t5I3TMSVQotQxNXmnJ/weYbk2JRtxTKAtWXKLpsQkBSd3vhdddcfdU66tTjizdSlG5PpjUps9TXKBO0Grpfbk5t1EwiYlQC4y6kpsqx3jmjr3WsbwpXveLuN1dv0dtDTXhF3Ei9s28lw1+jyUhLUis0VLjFOqgcZdk3HS4GHkAnmFRJscqwRuuAYpNfFpGmA/8Aa/pTE/rU/LVVmkUWkNPmUkcwQXUgLedVoVkDyFX8xiwM0dubckjMgLblW7FBPjKsm1+saH3RHPIUN8jqcROmvwXGxza3C58OU34OpSM6bPvc9y41HUN19Bw6yY+8TdE6v2N7uGNOMzE3ROr9je7hjipGyGWcPdkled4IIIEvSU9bJOlkz2NXfRFhiPbJOlkz2NXfRFhgjcLD6380fQIjMrNGRU5Ittq5F1OqCNEk9SgOH4e46cEOVQx7o3BzchTCfpj9PmC1NM5TcgKtzV+UHjvEdJUuyoc5pB86RFZdabfbLbraXEK3pULg+iMmZwrS5i5S0phRVmJaVb0WNwB5hDbFX8OrMtaVtj5KdeByp/uzP8gj88BlPqrPsxFARg2mpWlRcmFgG5SVix8mgjTlKRISJCpeVbQoG4UecoaW0J1hWKK/VoQPugkpTw9hFYmG5t5kSbaSeakZHFercPf67w7hKU+KkC/UI/YI6BZUNRUvqHbnIjMxN0Tq/Y3u4Y04zMTdE6v2N7uGOocP4jfULzvBBBAV6anrZJ0smexq76IsMQibZmcB47Cm0qWmVd5Roq/5rSuFym1yklJIGhvbdFVpWO8PVWXLiag3KKT4zc2oNKGptvNjuvoTvF7QRp7LHavTvleKiMXaQMJigjM+M1B+26d96R+sHxmoP23TvvSP1hyo+jJ9J9lpwRmfGag/bdO+9I/WD4zUH7bp33pH6wkujJ9J9lpwRmfGag/bdO+9I/WD4zUH7bp33pH6wkujJ9J9lpwE2FzGZ8ZqD9t0770j9Y+V4koC0KSa3TrKFj/xSP1hJdGT6T7JWXjqszEjOVqRp8oujSj3JK5Rag8sXGo4DeOHHjDHV5xqoYCn5xm/JTFPccTffYtkxMm6silYWqWFEqZmHph+7Uy2+2WSglOpVfTxff5I+8R4ulHMHyeG6Ytx5LSG0zEwU5UOZQDZIIzeNx08XiDDLrRO07e9vSbazs/28cnzSTBFGwls2lKxh9qfqjs2y4+oqbQ0oJ+b4EhSTqdTppYiCObSrWTV6aN5YSbjyVCrmHabiKUDFQYz5LltxJyrbJFrg/kbjQXBtEDrEo3T65PSbRUpuXmHGklRuSEqIF/LpBBHXKu0B7iHNJ4C6cEEEMWnRBBBCSRBBBCSRBBBCSRFG2bYSpNYpzlUn2VTDjMwWktKV83oEKBI4nUixNrcIIIcMqt1R7mUzi02KqsEEEEXn6//2Q==',
   'rosa_1': 'data:image/jpeg;base64,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',
@@ -439,17 +463,34 @@ const MISSIONS=[
   {id:'plus4',name:'Caos total',desc:'Jogue 3 cartas +4',target:3,stat:'plus4Played',reward:50,icon:'💀'},
   {id:'coins200',name:'Rico em laços',desc:'Acumule 200 moedas',target:200,stat:'coins',reward:50,icon:'🪙'},
 ];
-function simpleHash(s){let h=0;for(let i=0;i<s.length;i++){h=((h<<5)-h)+s.charCodeAt(i);h|=0}return 'h'+Math.abs(h).toString(16)+'_'+s.length}
-function defaultAccount(name, passHash){
-  return {name,passHash,coins:30,powers:[],wins:0,losses:0,games:0,unoCalls:0,wildsPlayed:0,plus4Played:0,missionsClaimed:[]};
+function defaultAccount(name){
+  return {name:name||'Jogador',coins:30,powers:[],wins:0,losses:0,games:0,unoCalls:0,wildsPlayed:0,plus4Played:0,missionsClaimed:[],uid:null};
 }
-let accounts = safeGetJSON('mochiAccounts', {});
 let ACC = null;
 let authMode = 'login';
-function saveAccounts(){
-  if(ACC) accounts[ACC.name.toLowerCase()] = ACC;
-  safeSet('mochiAccounts', JSON.stringify(accounts));
-  if(ACC) safeSet('mochiSession', ACC.name);
+async function saveAccounts(){
+  if(!ACC) return;
+  // local backup
+  try { safeSet('mochiSession', ACC.name||''); safeSet('mochiAccBackup', JSON.stringify(ACC)); } catch(e){}
+  if(fbReady && auth.currentUser && db){
+    try {
+      const uid = auth.currentUser.uid;
+      ACC.uid = uid;
+      await db.collection('users').doc(uid).set({
+        name: ACC.name||'',
+        coins: ACC.coins||0,
+        powers: ACC.powers||[],
+        wins: ACC.wins||0,
+        losses: ACC.losses||0,
+        games: ACC.games||0,
+        unoCalls: ACC.unoCalls||0,
+        wildsPlayed: ACC.wildsPlayed||0,
+        plus4Played: ACC.plus4Played||0,
+        missionsClaimed: ACC.missionsClaimed||[],
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+      }, {merge:true});
+    } catch(e){ console.warn('Firestore save', e); }
+  }
 }
 function coins(){ return ACC ? (ACC.coins||0) : 0; }
 function hasPower(id){ return !!(ACC && ACC.powers && ACC.powers.indexOf(id)>=0); }
@@ -477,47 +518,82 @@ function showScreen(id){
 function toggleAuthMode(){
   authMode = authMode==='login'?'register':'login';
   document.getElementById('auth-title').textContent = authMode==='login'?'Entrar':'Criar conta';
-  document.getElementById('auth-sub').textContent = authMode==='login'?'Entre na sua conta para salvar progresso':'Escolha apelido e senha (salvos neste dispositivo)';
+  document.getElementById('auth-sub').textContent = authMode==='login'?'Entre com e-mail e senha (salvo na nuvem)':'Crie sua conta com e-mail, apelido e senha';
   document.getElementById('auth-btn').textContent = authMode==='login'?'Entrar ✨':'Criar conta ✨';
   document.getElementById('login-pass2').style.display = authMode==='register'?'block':'none';
+  document.getElementById('login-name').style.display = authMode==='register'?'block':'none';
   document.getElementById('auth-switch').innerHTML = authMode==='login'
     ? 'Não tem conta? <a href="#" onclick="toggleAuthMode();return false;" style="color:var(--accent-dark);font-weight:700">Criar conta</a>'
     : 'Já tem conta? <a href="#" onclick="toggleAuthMode();return false;" style="color:var(--accent-dark);font-weight:700">Entrar</a>';
 }
-function doAuth(){
+async function doAuth(){
+  const email = (document.getElementById('login-email').value||'').trim();
   const name = document.getElementById('login-name').value.trim();
   const pass = document.getElementById('login-pass').value;
   const pass2 = document.getElementById('login-pass2').value;
-  if(name.length<2){showToast('Apelido com pelo menos 2 letras');return}
-  if(pass.length<3){showToast('Senha com pelo menos 3 caracteres');return}
-  const key = name.toLowerCase();
-  if(authMode==='register'){
-    if(pass!==pass2){showToast('Senhas não coincidem');return}
-    if(accounts[key]){showToast('Esse apelido já existe');return}
-    ACC = defaultAccount(name, simpleHash(pass));
-    accounts[key] = ACC;
-    saveAccounts();
-    showToast('Conta criada! Bem-vindo(a), '+name+' 💕');
-    enterLobby();
-  } else {
-    const acc = accounts[key];
-    if(!acc){showToast('Conta não encontrada. Crie uma!');return}
-    if(acc.passHash !== simpleHash(pass)){showToast('Senha incorreta');return}
-    ACC = acc;
-    if(ACC.missionsClaimed==null) ACC.missionsClaimed=[];
-    if(ACC.unoCalls==null) ACC.unoCalls=0;
-    if(ACC.wildsPlayed==null) ACC.wildsPlayed=0;
-    if(ACC.plus4Played==null) ACC.plus4Played=0;
-    if(ACC.games==null) ACC.games=(ACC.wins||0)+(ACC.losses||0);
-    if(ACC.powers==null) ACC.powers=[];
-    saveAccounts();
-    showToast('Olá de novo, '+ACC.name+'! ✨');
-    enterLobby();
+  if(!email || email.indexOf('@')<0){showToast('Digite um e-mail válido');return}
+  if(pass.length<6){showToast('Senha com pelo menos 6 caracteres');return}
+  if(!fbReady){showToast('Firebase não carregou. Verifique a internet.');return}
+  const btn = document.getElementById('auth-btn');
+  btn.disabled = true;
+  try {
+    if(authMode==='register'){
+      if(name.length<2){showToast('Apelido com pelo menos 2 letras');btn.disabled=false;return}
+      if(pass!==pass2){showToast('Senhas não coincidem');btn.disabled=false;return}
+      const cred = await auth.createUserWithEmailAndPassword(email, pass);
+      await cred.user.updateProfile({displayName: name});
+      ACC = defaultAccount(name);
+      ACC.uid = cred.user.uid;
+      await saveAccounts();
+      showToast('Conta criada! Bem-vindo(a), '+name+' 💕');
+      enterLobby();
+    } else {
+      const cred = await auth.signInWithEmailAndPassword(email, pass);
+      await loadUserFromCloud(cred.user);
+      showToast('Olá de novo, '+ACC.name+'! ✨');
+      enterLobby();
+    }
+  } catch(e){
+    console.warn(e);
+    const code = e.code||'';
+    if(code==='auth/email-already-in-use') showToast('E-mail já cadastrado');
+    else if(code==='auth/wrong-password'||code==='auth/invalid-credential') showToast('E-mail ou senha incorretos');
+    else if(code==='auth/user-not-found') showToast('Conta não encontrada');
+    else if(code==='auth/weak-password') showToast('Senha muito fraca');
+    else showToast('Erro: '+(e.message||'tente de novo'));
+  }
+  btn.disabled = false;
+}
+async function loadUserFromCloud(user){
+  ACC = defaultAccount(user.displayName||user.email.split('@')[0]);
+  ACC.uid = user.uid;
+  if(db){
+    try {
+      const snap = await db.collection('users').doc(user.uid).get();
+      if(snap.exists){
+        const d = snap.data();
+        ACC.name = d.name || ACC.name;
+        ACC.coins = d.coins!=null ? d.coins : 30;
+        ACC.powers = d.powers || [];
+        ACC.wins = d.wins||0;
+        ACC.losses = d.losses||0;
+        ACC.games = d.games||0;
+        ACC.unoCalls = d.unoCalls||0;
+        ACC.wildsPlayed = d.wildsPlayed||0;
+        ACC.plus4Played = d.plus4Played||0;
+        ACC.missionsClaimed = d.missionsClaimed||[];
+      } else {
+        await saveAccounts();
+      }
+    } catch(e){ console.warn('load cloud', e); }
   }
 }
 function doLogin(){ doAuth(); }
 function doLogout(){
-  ACC=null; safeSet('mochiSession','');
+  if(fbReady && auth) auth.signOut().catch(()=>{});
+  ACC=null;
+  try{ safeSet('mochiSession',''); }catch(e){}
+  document.getElementById('login-email').value='';
   document.getElementById('login-name').value='';
   document.getElementById('login-pass').value='';
   document.getElementById('login-pass2').value='';
@@ -525,11 +601,12 @@ function doLogout(){
   document.getElementById('auth-title').textContent='Entrar';
   document.getElementById('auth-btn').textContent='Entrar ✨';
   document.getElementById('login-pass2').style.display='none';
+  document.getElementById('login-name').style.display='none';
   document.getElementById('auth-switch').innerHTML='Não tem conta? <a href="#" onclick="toggleAuthMode();return false;" style="color:var(--accent-dark);font-weight:700">Criar conta</a>';
   showScreen('login-screen');
 }
 function enterLobby(){
-  document.getElementById('welcome-msg').textContent='Olá, '+ACC.name+'! 💕';
+  document.getElementById('welcome-msg').textContent='Olá, '+(ACC&&ACC.name?ACC.name:'')+'! 💕';
   showScreen('lobby-screen');
 }
 
@@ -1203,14 +1280,19 @@ function render(){
 
 /* Init */
 if(IMG&&IMG.hello) document.getElementById('logo-img').src=IMG.hello;
-const session = safeGet('mochiSession','');
-if(session && accounts[session.toLowerCase()]){
-  ACC = accounts[session.toLowerCase()];
-  if(ACC.missionsClaimed==null) ACC.missionsClaimed=[];
-  if(ACC.powers==null) ACC.powers=[];
-  enterLobby();
-} else {
-  showScreen('login-screen');
+showScreen('login-screen');
+if(fbReady && auth){
+  auth.onAuthStateChanged(async function(user){
+    if(user){
+      await loadUserFromCloud(user);
+      enterLobby();
+    } else {
+      // stay on login unless already in game without auth — force login
+      if(!document.getElementById('game-screen').classList.contains('show')){
+        showScreen('login-screen');
+      }
+    }
+  });
 }
 </script>
 </body>
