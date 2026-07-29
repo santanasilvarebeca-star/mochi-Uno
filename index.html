@@ -54,6 +54,43 @@ input.room-input{font-size:20px;letter-spacing:5px;text-transform:uppercase}
 .btn:disabled{opacity:.5;cursor:not-allowed}
 .btn.small{width:auto;padding:11px 16px;font-size:15px}
 .lobby-btns{display:flex;flex-direction:column;gap:10px}
+
+.cascade{
+  display:grid;
+  grid-template-rows:0fr;
+  transition:grid-template-rows .35s ease, margin .35s ease, opacity .25s ease;
+  opacity:0;
+  margin:0;
+  overflow:hidden;
+}
+.cascade.open{
+  grid-template-rows:1fr;
+  opacity:1;
+  margin:4px 0 6px;
+}
+.cascade-inner{min-height:0;overflow:hidden;display:flex;flex-direction:column;gap:8px}
+.cascade-item{
+  font-size:15px !important;
+  padding:12px 16px !important;
+  transform:translateY(-6px);
+  transition:transform .3s ease, opacity .3s ease;
+  opacity:0;
+  background:linear-gradient(160deg,#ff8fbc,var(--pink)) !important;
+  box-shadow:0 3px 0 var(--pink-dark) !important;
+}
+.cascade.open .cascade-item{
+  transform:translateY(0);
+  opacity:1;
+}
+.cascade-item.ghost{
+  background:#fff !important;
+  color:var(--accent-dark) !important;
+  box-shadow:0 3px 0 rgba(0,0,0,.1) !important;
+}
+.cascade-item:nth-child(1){transition-delay:.05s}
+.cascade-item:nth-child(2){transition-delay:.1s}
+.cascade-item:nth-child(3){transition-delay:.15s}
+
 .welcome{font-family:'Baloo 2';font-size:18px;color:var(--ink);margin-bottom:12px}
 .code-box{
   font-family:'Baloo 2';font-size:28px;letter-spacing:6px;background:#fff;
@@ -178,11 +215,17 @@ input.room-input{font-size:20px;letter-spacing:5px;text-transform:uppercase}
     <h2>Lobby</h2>
     <p>Escolha como quer jogar</p>
     <div class="lobby-btns">
-      <button class="btn" onclick="startBotGame(2)">🤖 2 jogadores (1 robô)</button>
-      <button class="btn" onclick="startBotGame(3)">🤖 3 jogadores (2 robôs)</button>
-      <button class="btn" onclick="startBotGame(4)">🤖 4 jogadores (3 robôs)</button>
-      <button class="btn ghost" onclick="openHostModal()">🏠 Criar sala online (2 jogadores)</button>
-      <button class="btn ghost" onclick="openJoinModal()">🔗 Entrar com código</button>
+      <button class="btn" id="btn-bots" onclick="toggleCascade('bots')">🤖 Jogar vs robôs ▾</button>
+      <div class="cascade" id="cascade-bots"><div class="cascade-inner">
+        <button class="btn cascade-item" onclick="startBotGame(2)">👥 2 jogadores (1 robô)</button>
+        <button class="btn cascade-item" onclick="startBotGame(3)">👥 3 jogadores (2 robôs)</button>
+        <button class="btn cascade-item" onclick="startBotGame(4)">👥 4 jogadores (3 robôs)</button>
+      </div></div>
+      <button class="btn ghost" id="btn-online" onclick="toggleCascade('online')">🌐 Jogar online ▾</button>
+      <div class="cascade" id="cascade-online"><div class="cascade-inner">
+        <button class="btn cascade-item ghost" onclick="openHostModal()">🏠 Criar sala (2 jogadores)</button>
+        <button class="btn cascade-item ghost" onclick="openJoinModal()">🔗 Entrar com código</button>
+      </div></div>
       <button class="btn ghost" onclick="openProfile()">👤 Meu perfil</button>
       <button class="btn ghost" onclick="doLogout()">Sair da conta</button>
     </div>
@@ -590,6 +633,28 @@ function buildDeck(){
   return deck;
 }
 function shuffle(a){for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a}
+
+
+function toggleCascade(id){
+  const el = document.getElementById('cascade-'+id);
+  const btn = document.getElementById('btn-'+id);
+  if(!el) return;
+  const open = el.classList.contains('open');
+  // fecha os outros
+  document.querySelectorAll('.cascade.open').forEach(c=>{
+    if(c!==el) c.classList.remove('open');
+  });
+  document.querySelectorAll('#btn-bots,#btn-online').forEach(b=>{
+    if(b && b!==btn) b.textContent = b.textContent.replace('▴','▾');
+  });
+  if(open){
+    el.classList.remove('open');
+    if(btn) btn.textContent = btn.textContent.replace('▴','▾');
+  } else {
+    el.classList.add('open');
+    if(btn) btn.textContent = btn.textContent.replace('▾','▴');
+  }
+}
 
 function startBotGame(totalPlayers){gameMode='bots';mySeat=0;botPlayerCount=totalPlayers||3;newGame();showScreen('game-screen');updateCoinUI();renderPowerTags()}
 function quitToLobby(){if(gameMode==='online')cancelOnline();G=null;showScreen('lobby-screen')}
