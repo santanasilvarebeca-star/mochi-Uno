@@ -470,13 +470,12 @@ let ACC = null;
 let authMode = 'login';
 async function saveAccounts(){
   if(!ACC) return;
-  // local backup
   try { safeSet('mochiSession', ACC.name||''); safeSet('mochiAccBackup', JSON.stringify(ACC)); } catch(e){}
-  if(fbReady && auth.currentUser && db){
+  if(fbReady && auth && auth.currentUser && db){
     try {
       const uid = auth.currentUser.uid;
       ACC.uid = uid;
-      await db.collection('users').doc(uid).set({
+      const data = {
         name: ACC.name||'',
         coins: ACC.coins||0,
         powers: ACC.powers||[],
@@ -486,9 +485,12 @@ async function saveAccounts(){
         unoCalls: ACC.unoCalls||0,
         wildsPlayed: ACC.wildsPlayed||0,
         plus4Played: ACC.plus4Played||0,
-        missionsClaimed: ACC.missionsClaimed||[],
-        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-      }, {merge:true});
+        missionsClaimed: ACC.missionsClaimed||[]
+      };
+      await Promise.race([
+        db.collection('users').doc(uid).set(data, {merge:true}),
+        new Promise((_,rej)=>setTimeout(()=>rej(new Error('save-timeout')),8000))
+      ]);
     } catch(e){ console.warn('Firestore save', e); }
   }
 }
@@ -536,19 +538,29 @@ async function doAuth(){
   if(!fbReady){showToast('Firebase não carregou. Verifique a internet.');return}
   const btn = document.getElementById('auth-btn');
   btn.disabled = true;
+  const oldText = btn.textContent;
+  btn.textContent = 'Aguarde...';
+  showToast(authMode==='register'?'Criando conta...':'Entrando...');
   try {
     if(authMode==='register'){
-      if(name.length<2){showToast('Apelido com pelo menos 2 letras');btn.disabled=false;return}
-      if(pass!==pass2){showToast('Senhas não coincidem');btn.disabled=false;return}
-      const cred = await auth.createUserWithEmailAndPassword(email, pass);
-      await cred.user.updateProfile({displayName: name});
+      if(name.length<2){showToast('Apelido com pelo menos 2 letras');btn.disabled=false;btn.textContent=oldText;return}
+      if(pass!==pass2){showToast('Senhas não coincidem');btn.disabled=false;btn.textContent=oldText;return}
+      const cred = await Promise.race([
+        auth.createUserWithEmailAndPassword(email, pass),
+        new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout')),15000))
+      ]);
+      try { await cred.user.updateProfile({displayName: name}); } catch(e){}
       ACC = defaultAccount(name);
       ACC.uid = cred.user.uid;
-      await saveAccounts();
+      // salva em background — não bloqueia entrada
+      saveAccounts().catch(()=>{});
       showToast('Conta criada! Bem-vindo(a), '+name+' 💕');
       enterLobby();
     } else {
-      const cred = await auth.signInWithEmailAndPassword(email, pass);
+      const cred = await Promise.race([
+        auth.signInWithEmailAndPassword(email, pass),
+        new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout')),15000))
+      ]);
       await loadUserFromCloud(cred.user);
       showToast('Olá de novo, '+ACC.name+'! ✨');
       enterLobby();
@@ -556,36 +568,45 @@ async function doAuth(){
   } catch(e){
     console.warn(e);
     const code = e.code||'';
-    if(code==='auth/email-already-in-use') showToast('E-mail já cadastrado');
+    if(e.message==='timeout') showToast('Demorou demais. Verifique internet e se o Authentication está ativo.');
+    else if(code==='auth/email-already-in-use') showToast('E-mail já cadastrado');
     else if(code==='auth/wrong-password'||code==='auth/invalid-credential') showToast('E-mail ou senha incorretos');
     else if(code==='auth/user-not-found') showToast('Conta não encontrada');
     else if(code==='auth/weak-password') showToast('Senha muito fraca');
+    else if(code==='auth/configuration-not-found') showToast('Ative Authentication → E-mail/senha no Firebase');
+    else if(code==='auth/network-request-failed') showToast('Sem internet ou rede bloqueada');
     else showToast('Erro: '+(e.message||'tente de novo'));
   }
   btn.disabled = false;
+  btn.textContent = oldText;
 }
 async function loadUserFromCloud(user){
-  ACC = defaultAccount(user.displayName||user.email.split('@')[0]);
+  ACC = defaultAccount(user.displayName||(user.email?user.email.split('@')[0]:'Jogador'));
   ACC.uid = user.uid;
-  if(db){
-    try {
-      const snap = await db.collection('users').doc(user.uid).get();
-      if(snap.exists){
-        const d = snap.data();
-        ACC.name = d.name || ACC.name;
-        ACC.coins = d.coins!=null ? d.coins : 30;
-        ACC.powers = d.powers || [];
-        ACC.wins = d.wins||0;
-        ACC.losses = d.losses||0;
-        ACC.games = d.games||0;
-        ACC.unoCalls = d.unoCalls||0;
-        ACC.wildsPlayed = d.wildsPlayed||0;
-        ACC.plus4Played = d.plus4Played||0;
-        ACC.missionsClaimed = d.missionsClaimed||[];
-      } else {
-        await saveAccounts();
-      }
-    } catch(e){ console.warn('load cloud', e); }
+  if(!db) return;
+  try {
+    const snap = await Promise.race([
+      db.collection('users').doc(user.uid).get(),
+      new Promise((_,rej)=>setTimeout(()=>rej(new Error('fs-timeout')),8000))
+    ]);
+    if(snap && snap.exists){
+      const d = snap.data();
+      ACC.name = d.name || ACC.name;
+      ACC.coins = d.coins!=null ? d.coins : 30;
+      ACC.powers = d.powers || [];
+      ACC.wins = d.wins||0;
+      ACC.losses = d.losses||0;
+      ACC.games = d.games||0;
+      ACC.unoCalls = d.unoCalls||0;
+      ACC.wildsPlayed = d.wildsPlayed||0;
+      ACC.plus4Played = d.plus4Played||0;
+      ACC.missionsClaimed = d.missionsClaimed||[];
+    } else {
+      saveAccounts().catch(()=>{});
+    }
+  } catch(e){
+    console.warn('load cloud', e);
+    // entra mesmo sem Firestore
   }
 }
 function doLogin(){ doAuth(); }
@@ -1282,15 +1303,16 @@ function render(){
 if(IMG&&IMG.hello) document.getElementById('logo-img').src=IMG.hello;
 showScreen('login-screen');
 if(fbReady && auth){
+  let authHandled = false;
   auth.onAuthStateChanged(async function(user){
+    if(authHandled && !user) return;
     if(user){
+      showToast('Carregando perfil...');
       await loadUserFromCloud(user);
+      authHandled = true;
       enterLobby();
-    } else {
-      // stay on login unless already in game without auth — force login
-      if(!document.getElementById('game-screen').classList.contains('show')){
-        showScreen('login-screen');
-      }
+    } else if(!document.getElementById('game-screen').classList.contains('show')){
+      showScreen('login-screen');
     }
   });
 }
