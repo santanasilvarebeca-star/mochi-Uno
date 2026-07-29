@@ -443,22 +443,22 @@ function safeSet(k,v){try{localStorage.setItem(k,v)}catch(e){}}
 function safeGetJSON(k,fb){try{return JSON.parse(safeGet(k,JSON.stringify(fb)))}catch(e){return fb}}
 
 const SHOP=[
-  {id:'start4',name:'Começar com +4',desc:'Toda partida você inicia com um +4 na mão',price:250,icon:'🃏'},
-  {id:'startWild',name:'Começar com coringa',desc:'Inicia com uma carta de troca de cor',price:150,icon:'🎨'},
-  {id:'extraCard',name:'Carta extra',desc:'Começa com 8 cartas em vez de 7',price:120,icon:'➕'},
-  {id:'smallHand',name:'Mão enxuta',desc:'Começa com apenas 6 cartas',price:180,icon:'✋'},
-  {id:'startSkip',name:'Começar com Bloqueio',desc:'Inicia com uma carta de pular vez',price:140,icon:'🚫'},
-  {id:'startReverse',name:'Começar com Inversão',desc:'Inicia com uma carta de inverter',price:140,icon:'🔄'},
-  {id:'startDraw2',name:'Começar com +2',desc:'Inicia com uma carta +2',price:160,icon:'💥'},
-  {id:'shield2',name:'Escudo +2',desc:'Uma vez por partida, anula o primeiro +2 contra você',price:280,icon:'🛡️'},
-  {id:'megaShield',name:'Escudo +4',desc:'Uma vez por partida, anula o primeiro +4 contra você',price:400,icon:'🏰'},
-  {id:'luckyDraw',name:'Compra da sorte',desc:'Ao comprar do monte, 30% de chance de vir carta jogável',price:220,icon:'🍀'},
-  {id:'stackMaster',name:'Mestre da pilha',desc:'Seu +2 empilha +3 em vez de +2',price:300,icon:'📚'},
-  {id:'wildFury',name:'Fúria coringa',desc:'Seu +4 empilha +5 em vez de +4',price:350,icon:'🔥'},
-  {id:'longUno',name:'UNO estendido',desc:'5 segundos para gritar UNO em vez de 2,5',price:130,icon:'⏱️'},
-  {id:'coinBoost',name:'Bônus de moedas',desc:'+50% de moedas ao final de cada partida',price:320,icon:'💰'},
-  {id:'winBonus',name:'Prêmio de vitória',desc:'+15 moedas extras quando você vence',price:260,icon:'🏆'},
-  {id:'consolation',name:'Prêmio de consolação',desc:'+10 moedas extras quando você perde',price:200,icon:'🎁'},
+  {id:'start4',name:'Começar com +4',desc:'Toda partida você inicia com um +4 na mão',price:120,icon:'🃏'},
+  {id:'startWild',name:'Começar com coringa',desc:'Inicia com uma carta de troca de cor',price:70,icon:'🎨'},
+  {id:'extraCard',name:'Carta extra',desc:'Começa com 8 cartas em vez de 7',price:55,icon:'➕'},
+  {id:'smallHand',name:'Mão enxuta',desc:'Começa com apenas 6 cartas',price:90,icon:'✋'},
+  {id:'startSkip',name:'Começar com Bloqueio',desc:'Inicia com uma carta de pular vez',price:65,icon:'🚫'},
+  {id:'startReverse',name:'Começar com Inversão',desc:'Inicia com uma carta de inverter',price:65,icon:'🔄'},
+  {id:'startDraw2',name:'Começar com +2',desc:'Inicia com uma carta +2',price:80,icon:'💥'},
+  {id:'shield2',name:'Escudo +2',desc:'Uma vez por partida, anula o primeiro +2 contra você',price:140,icon:'🛡️'},
+  {id:'megaShield',name:'Escudo +4',desc:'Uma vez por partida, anula o primeiro +4 contra você',price:200,icon:'🏰'},
+  {id:'luckyDraw',name:'Compra da sorte',desc:'Ao comprar do monte, 30% de chance de vir carta jogável',price:100,icon:'🍀'},
+  {id:'stackMaster',name:'Mestre da pilha',desc:'Seu +2 empilha +3 em vez de +2',price:150,icon:'📚'},
+  {id:'wildFury',name:'Fúria coringa',desc:'Seu +4 empilha +5 em vez de +4',price:180,icon:'🔥'},
+  {id:'longUno',name:'UNO estendido',desc:'5 segundos para gritar UNO em vez de 2,5',price:60,icon:'⏱️'},
+  {id:'coinBoost',name:'Bônus de moedas',desc:'+50% de moedas ao final de cada partida',price:160,icon:'💰'},
+  {id:'winBonus',name:'Prêmio de vitória',desc:'+15 moedas extras quando você vence',price:130,icon:'🏆'},
+  {id:'consolation',name:'Prêmio de consolação',desc:'+10 moedas extras quando você perde',price:100,icon:'🎁'},
 ];
 
 
@@ -819,7 +819,7 @@ function newGame(){
   let startColor=starter.color;
   if(startColor==='wild') startColor=COLORS[Math.floor(Math.random()*4)];
 
-  G={deck,discard:[starter],players,turn:0,dir:1,currentColor:startColor,gameOver:false,unoCalled:true,unoTimer:null,pendingWild:null,drawDecisionIdx:null,drawStack:0};
+  G={deck,discard:[starter],players,turn:0,dir:1,currentColor:startColor,gameOver:false,unoCalled:true,unoTimer:null,pendingWild:null,drawDecisionIdx:null,drawStack:0,coinsAwarded:false};
   showToast('Boa sorte, '+((ACC?ACC.name:''))+'! ✨');
   render();
   if(starter.type==='skip'||starter.type==='reverse'||starter.type==='draw2'){advanceTurn(starter);render()}
@@ -927,21 +927,31 @@ function rewardCoins(won){
   updateCoinUI();
   return base;
 }
+function finishGameUI(iWon, winnerName){
+  if(!G) return;
+  let reward = 0;
+  if(!G.coinsAwarded){
+    G.coinsAwarded = true;
+    reward = rewardCoins(iWon);
+  }
+  document.getElementById('end-title').textContent=iWon?'Você venceu! 🎊':'Fim de jogo 😿';
+  document.getElementById('end-text').textContent=iWon?'Parabéns, você zerou a mão primeiro!':((winnerName||'Alguém')+' ganhou essa rodada.');
+  document.getElementById('coin-reward').textContent='+'+reward+' moedas 🪙 (total: '+(ACC?ACC.coins:0)+')';
+  const ready=checkMissionNotices();
+  const mr=document.getElementById('mission-reward');
+  if(mr) mr.textContent=ready.length?('🎯 '+ready.length+' missão(ões) pronta(s) no perfil!'):'';
+  document.getElementById('end-modal').classList.add('show');
+  showToast((iWon?'Vitória':'Derrota')+'! +'+reward+' 🪙');
+}
 function checkWin(playerIdx){
-  if(G.gameOver) return;
+  if(!G || G.gameOver) return;
   if(G.players[playerIdx].hand.length===0){
     G.gameOver=true;
     const p=G.players[playerIdx];
     const iWon=(gameMode==='bots'&&playerIdx===0)||(gameMode==='online'&&playerIdx===mySeat);
-    const reward=rewardCoins(iWon);
-    document.getElementById('end-title').textContent=iWon?'Você venceu! 🎊':'Fim de jogo 😿';
-    document.getElementById('end-text').textContent=iWon?'Parabéns, você zerou a mão primeiro!':(p.name+' ganhou essa rodada.');
-    document.getElementById('coin-reward').textContent='+'+reward+' moedas 🪙 (total: '+(ACC?ACC.coins:0)+')';
-    const ready=checkMissionNotices();
-    const mr=document.getElementById('mission-reward');
-    if(mr) mr.textContent=ready.length?('🎯 '+ready.length+' missão(ões) pronta(s) no perfil!'):'';
-    document.getElementById('end-modal').classList.add('show');
-    showToast((iWon?'Vitória':'Derrota')+'! +'+reward+' 🪙');
+    // No online, host processa e sincroniza; cada cliente premia a si mesmo
+    finishGameUI(iWon, p.name);
+    if(gameMode==='online'&&isHost) syncFullState();
   }
 }
 
@@ -1216,6 +1226,8 @@ function onNetMsg(msg, fromConn){
     }
     if(msg.type==='full'){ showToast('Sala cheia'); quitToLobby(); return; }
     if(msg.type==='state'){
+      const wasOver = G && G.gameOver;
+      const prevAwarded = G && G.coinsAwarded;
       G = msg.state;
       if(msg.maxPlayers) onlineMaxPlayers = msg.maxPlayers;
       document.getElementById('host-modal').classList.remove('show');
@@ -1224,6 +1236,17 @@ function onNetMsg(msg, fromConn){
       updateCoinUI();
       renderPowerTags();
       render();
+      // Fim de jogo online: convidado também ganha moedas
+      if(G && G.gameOver && !wasOver && !prevAwarded){
+        let winnerIdx = -1;
+        for(let i=0;i<G.players.length;i++){
+          if(G.players[i].hand && G.players[i].hand.length===0){ winnerIdx=i; break; }
+        }
+        const iWon = (winnerIdx === mySeat);
+        const wname = winnerIdx>=0 ? (G.players[winnerIdx].name||'Jogador') : 'Alguém';
+        G.coinsAwarded = false; // finishGameUI marca de novo no cliente local
+        finishGameUI(iWon, wname);
+      }
       return;
     }
     return;
