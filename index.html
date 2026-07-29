@@ -72,7 +72,7 @@ input.room-input{font-size:20px;letter-spacing:5px;text-transform:uppercase}
   box-shadow:0 16px 40px rgba(180,70,120,.22);display:flex;flex-direction:column;gap:10px;
   border:3px solid rgba(255,255,255,.7);
 }
-.bots-row{display:flex;justify-content:space-around;gap:8px}
+.bots-row{display:flex;justify-content:space-around;gap:8px;flex-wrap:wrap}
 .bot{
   display:flex;flex-direction:column;align-items:center;gap:3px;position:relative;
   padding:8px 10px;border-radius:16px;background:rgba(255,255,255,.95);box-shadow:0 3px 0 rgba(0,0,0,.1);
@@ -178,8 +178,10 @@ input.room-input{font-size:20px;letter-spacing:5px;text-transform:uppercase}
     <h2>Lobby</h2>
     <p>Escolha como quer jogar</p>
     <div class="lobby-btns">
-      <button class="btn" onclick="startBotGame()">🤖 Jogar vs robôs</button>
-      <button class="btn ghost" onclick="openHostModal()">🏠 Criar sala (2 jogadores)</button>
+      <button class="btn" onclick="startBotGame(2)">🤖 2 jogadores (1 robô)</button>
+      <button class="btn" onclick="startBotGame(3)">🤖 3 jogadores (2 robôs)</button>
+      <button class="btn" onclick="startBotGame(4)">🤖 4 jogadores (3 robôs)</button>
+      <button class="btn ghost" onclick="openHostModal()">🏠 Criar sala online (2 jogadores)</button>
       <button class="btn ghost" onclick="openJoinModal()">🔗 Entrar com código</button>
       <button class="btn ghost" onclick="openProfile()">👤 Meu perfil</button>
       <button class="btn ghost" onclick="doLogout()">Sair da conta</button>
@@ -411,7 +413,8 @@ let G=null, gameMode='bots', mySeat=0, peer=null, conn=null, isHost=false, roomC
 
 const COLORS=['rosa','amarelo','verde','azul'];
 const COLOR_LABEL={rosa:'Rosa',amarelo:'Amarelo',verde:'Verde',azul:'Azul'};
-const BOT_NAMES=['Kuromi','My Melody'];
+const BOT_NAMES=['Kuromi','My Melody','Cinnamoroll'];
+let botPlayerCount=3; // total players including human
 
 function saveEconomy(){saveAccounts();updateCoinUI()}
 function updateCoinUI(){const t='🪙 '+coins();
@@ -572,18 +575,23 @@ function renderPowerTags(){
 }
 
 function buildDeck(){
+  // Baralho base (~108) repetido até ~300 cartas
   const deck=[];
-  COLORS.forEach(c=>{
-    deck.push({color:c,type:'number',value:0});
-    for(let n=1;n<=9;n++){deck.push({color:c,type:'number',value:n});deck.push({color:c,type:'number',value:n})}
-    for(let i=0;i<2;i++){deck.push({color:c,type:'skip'});deck.push({color:c,type:'reverse'});deck.push({color:c,type:'draw2'})}
-  });
-  for(let i=0;i<4;i++){deck.push({color:'wild',type:'wild'});deck.push({color:'wild',type:'wild4'})}
+  function addBase(){
+    COLORS.forEach(c=>{
+      deck.push({color:c,type:'number',value:0});
+      for(let n=1;n<=9;n++){deck.push({color:c,type:'number',value:n});deck.push({color:c,type:'number',value:n})}
+      for(let i=0;i<2;i++){deck.push({color:c,type:'skip'});deck.push({color:c,type:'reverse'});deck.push({color:c,type:'draw2'})}
+    });
+    for(let i=0;i<4;i++){deck.push({color:'wild',type:'wild'});deck.push({color:'wild',type:'wild4'})}
+  }
+  // 3 cópias ≈ 324 cartas
+  for(let r=0;r<3;r++) addBase();
   return deck;
 }
 function shuffle(a){for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a}
 
-function startBotGame(){gameMode='bots';mySeat=0;newGame();showScreen('game-screen');updateCoinUI();renderPowerTags()}
+function startBotGame(totalPlayers){gameMode='bots';mySeat=0;botPlayerCount=totalPlayers||3;newGame();showScreen('game-screen');updateCoinUI();renderPowerTags()}
 function quitToLobby(){if(gameMode==='online')cancelOnline();G=null;showScreen('lobby-screen')}
 function afterEndContinue(){document.getElementById('end-modal').classList.remove('show');quitToLobby()}
 
@@ -594,11 +602,11 @@ function newGame(){
   const deck=shuffle(buildDeck());
   let players;
   if(gameMode==='bots'){
-    players=[
-      {name:(ACC?ACC.name:'Você'),hand:[],isBot:false},
-      {name:BOT_NAMES[0],hand:[],isBot:true},
-      {name:BOT_NAMES[1],hand:[],isBot:true},
-    ];
+    players=[{name:(ACC?ACC.name:'Você'),hand:[],isBot:false}];
+    const botsNeeded = Math.max(1, Math.min(3, (botPlayerCount||3) - 1));
+    for(let b=0;b<botsNeeded;b++){
+      players.push({name:BOT_NAMES[b]||('Robô '+(b+1)),hand:[],isBot:true});
+    }
   } else {
     players=[
       {name:isHost?((ACC?ACC.name:'Host')):'Host',hand:[],isBot:false},
@@ -965,8 +973,11 @@ function render(){
     const div=document.createElement('div');
     div.className='bot'+(G.turn===i&&!G.gameOver?' active':'');
     let icon=(IMG&&IMG.kuromi)?IMG.kuromi:'';
-    if(gameMode==='bots') icon=i===1?(IMG.kuromi||''):(IMG.melody||'');
-    else icon=IMG.hello||'';
+    if(gameMode==='bots'){
+      if(i===1) icon=IMG.kuromi||'';
+      else if(i===2) icon=IMG.melody||'';
+      else icon=IMG.cinna||IMG.hello||'';
+    } else icon=IMG.hello||'';
     const name=gameMode==='online'?'Oponente':p.name;
     div.innerHTML=`<img class="face" src="${icon}" alt=""><div class="name">${name}</div><div class="count">${p.hand.length} carta${p.hand.length===1?'':'s'}</div><div class="bubble"></div>`;
     botsRow.appendChild(div);
