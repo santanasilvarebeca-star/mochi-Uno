@@ -443,12 +443,22 @@ function safeSet(k,v){try{localStorage.setItem(k,v)}catch(e){}}
 function safeGetJSON(k,fb){try{return JSON.parse(safeGet(k,JSON.stringify(fb)))}catch(e){return fb}}
 
 const SHOP=[
-  {id:'start4',name:'Começar com +4',desc:'Toda partida você inicia com um +4 na mão',price:80,icon:'🃏'},
-  {id:'startWild',name:'Começar com coringa',desc:'Inicia com uma carta de troca de cor',price:50,icon:'🎨'},
-  {id:'extraCard',name:'Carta extra',desc:'Começa com 8 cartas em vez de 7',price:40,icon:'➕'},
-  {id:'shield2',name:'Escudo +2',desc:'Uma vez por partida, anula o primeiro +2 contra você',price:100,icon:'🛡️'},
-  {id:'luckyDraw',name:'Compra da sorte',desc:'Ao comprar do monte, 30% de chance de vir carta jogável',price:70,icon:'🍀'},
-  {id:'coinBoost',name:'Bônus de moedas',desc:'+50% de moedas ao final de cada partida',price:120,icon:'💰'},
+  {id:'start4',name:'Começar com +4',desc:'Toda partida você inicia com um +4 na mão',price:250,icon:'🃏'},
+  {id:'startWild',name:'Começar com coringa',desc:'Inicia com uma carta de troca de cor',price:150,icon:'🎨'},
+  {id:'extraCard',name:'Carta extra',desc:'Começa com 8 cartas em vez de 7',price:120,icon:'➕'},
+  {id:'smallHand',name:'Mão enxuta',desc:'Começa com apenas 6 cartas',price:180,icon:'✋'},
+  {id:'startSkip',name:'Começar com Bloqueio',desc:'Inicia com uma carta de pular vez',price:140,icon:'🚫'},
+  {id:'startReverse',name:'Começar com Inversão',desc:'Inicia com uma carta de inverter',price:140,icon:'🔄'},
+  {id:'startDraw2',name:'Começar com +2',desc:'Inicia com uma carta +2',price:160,icon:'💥'},
+  {id:'shield2',name:'Escudo +2',desc:'Uma vez por partida, anula o primeiro +2 contra você',price:280,icon:'🛡️'},
+  {id:'megaShield',name:'Escudo +4',desc:'Uma vez por partida, anula o primeiro +4 contra você',price:400,icon:'🏰'},
+  {id:'luckyDraw',name:'Compra da sorte',desc:'Ao comprar do monte, 30% de chance de vir carta jogável',price:220,icon:'🍀'},
+  {id:'stackMaster',name:'Mestre da pilha',desc:'Seu +2 empilha +3 em vez de +2',price:300,icon:'📚'},
+  {id:'wildFury',name:'Fúria coringa',desc:'Seu +4 empilha +5 em vez de +4',price:350,icon:'🔥'},
+  {id:'longUno',name:'UNO estendido',desc:'5 segundos para gritar UNO em vez de 2,5',price:130,icon:'⏱️'},
+  {id:'coinBoost',name:'Bônus de moedas',desc:'+50% de moedas ao final de cada partida',price:320,icon:'💰'},
+  {id:'winBonus',name:'Prêmio de vitória',desc:'+15 moedas extras quando você vence',price:260,icon:'🏆'},
+  {id:'consolation',name:'Prêmio de consolação',desc:'+10 moedas extras quando você perde',price:200,icon:'🎁'},
 ];
 
 
@@ -464,7 +474,7 @@ const MISSIONS=[
   {id:'coins200',name:'Rico em laços',desc:'Acumule 200 moedas',target:200,stat:'coins',reward:50,icon:'🪙'},
 ];
 function defaultAccount(name){
-  return {name:name||'Jogador',coins:30,powers:[],wins:0,losses:0,games:0,unoCalls:0,wildsPlayed:0,plus4Played:0,missionsClaimed:[],uid:null};
+  return {name:name||'Jogador',coins:50,powers:[],wins:0,losses:0,games:0,unoCalls:0,wildsPlayed:0,plus4Played:0,missionsClaimed:[],uid:null};
 }
 let ACC = null;
 let authMode = 'login';
@@ -790,7 +800,18 @@ function newGame(){
   if(gameMode==='bots' || isHost){
     if(hasPower('start4')) players[0].hand.push({color:'wild',type:'wild4'});
     if(hasPower('startWild')) players[0].hand.push({color:'wild',type:'wild'});
+    if(hasPower('startSkip')) players[0].hand.push({color:COLORS[Math.floor(Math.random()*4)],type:'skip'});
+    if(hasPower('startReverse')) players[0].hand.push({color:COLORS[Math.floor(Math.random()*4)],type:'reverse'});
+    if(hasPower('startDraw2')) players[0].hand.push({color:COLORS[Math.floor(Math.random()*4)],type:'draw2'});
     if(hasPower('extraCard')&&deck.length) players[0].hand.push(deck.pop());
+    if(hasPower('smallHand') && players[0].hand.length>6){
+      // devolve cartas extras ao deck até ficar com 6 (sem remover poderes start)
+      while(players[0].hand.length>6){
+        const c = players[0].hand.pop();
+        if(c) deck.push(c);
+      }
+      shuffle(deck);
+    }
   }
 
   let starter=deck.pop();
@@ -839,17 +860,22 @@ function advanceTurn(card){
   if(card.type==='skip'){steps=2;showEffect('skip',G.players[nextTarget].name);shakeTarget(nextTarget)}
   // Empilhar +2: não compra ainda — passa a pilha pro próximo
   if(card.type==='draw2'){
-    G.drawStack = (G.drawStack||0) + 2;
+    let add = 2;
+    // Mestre da pilha: se quem jogou tem o poder
+    if(hasPower('stackMaster') && (gameMode==='bots' ? G.turn===0 : G.turn===mySeat)) add = 3;
+    G.drawStack = (G.drawStack||0) + add;
     steps=1;
     showEffect('draw2', 'Pilha +' + G.drawStack);
-    showToast('⚡ +2 empilhado! Total: +' + G.drawStack + ' (revida com +2 ou +4)');
+    showToast('⚡ +'+add+' empilhado! Total: +' + G.drawStack + ' (revida com +2 ou +4)');
   }
   // Empilhar +4
   if(card.type==='wild4'){
-    G.drawStack = (G.drawStack||0) + 4;
+    let add4 = 4;
+    if(hasPower('wildFury') && (gameMode==='bots' ? G.turn===0 : G.turn===mySeat)) add4 = 5;
+    G.drawStack = (G.drawStack||0) + add4;
     steps=1;
     showEffect('draw4', 'Pilha +' + G.drawStack);
-    showToast('⚡ +4 empilhado! Total: +' + G.drawStack + ' (revida com +2 ou +4)');
+    showToast('⚡ +'+add4+' empilhado! Total: +' + G.drawStack + ' (revida com +2 ou +4)');
     setTimeout(()=>{showEffect('wild','');flashColor(G.currentColor)},200);
   } else if(card.type==='wild'){
     setTimeout(()=>{showEffect('wild','');flashColor(G.currentColor)},200);
@@ -865,29 +891,44 @@ function checkUnoAfterPlay(playerIdx){
     if(p.isBot) showBotBubble(playerIdx-1,'UNO!');
     else if(playerIdx===mySeat||gameMode==='bots'){
       G.unoCalled=false;document.getElementById('uno-btn').classList.add('show');
+      const unoMs = hasPower('longUno') ? 5000 : 2500;
       G.unoTimer=setTimeout(()=>{
         if(!G.unoCalled&&G.players[playerIdx].hand.length===1&&!G.gameOver){
           drawCards(playerIdx,2);showToast('Esqueceu o UNO! +2 cartas 😝');render();
           if(gameMode==='online'&&isHost)syncFullState();
         }
         document.getElementById('uno-btn').classList.remove('show');
-      },2500);
+      },unoMs);
     }
   } else document.getElementById('uno-btn').classList.remove('show');
 }
 function callUno(){G.unoCalled=true;document.getElementById('uno-btn').classList.remove('show');showToast('UNO! 🎉');if(ACC){ACC.unoCalls=(ACC.unoCalls||0)+1;saveAccounts()}if(gameMode==='online')sendMsg({type:'uno'})}
 
 function rewardCoins(won){
-  if(!ACC) return 0;
+  // Garante conta local mesmo se Firebase falhar
+  if(!ACC){
+    try {
+      const bak = safeGet('mochiAccBackup','');
+      if(bak) ACC = JSON.parse(bak);
+    } catch(e){}
+  }
+  if(!ACC){
+    ACC = {name:'Jogador',coins:0,powers:[],wins:0,losses:0,games:0,unoCalls:0,wildsPlayed:0,plus4Played:0,missionsClaimed:[]};
+  }
   let base = won ? 25 : 10;
   if(hasPower('coinBoost')) base = Math.floor(base * 1.5);
-  ACC.coins += base;
+  if(won && hasPower('winBonus')) base += 15;
+  if(!won && hasPower('consolation')) base += 10;
+  ACC.coins = (ACC.coins||0) + base;
   ACC.games = (ACC.games||0) + 1;
   if(won) ACC.wins = (ACC.wins||0) + 1; else ACC.losses = (ACC.losses||0) + 1;
+  try { safeSet('mochiAccBackup', JSON.stringify(ACC)); } catch(e){}
   saveAccounts();
+  updateCoinUI();
   return base;
 }
 function checkWin(playerIdx){
+  if(G.gameOver) return;
   if(G.players[playerIdx].hand.length===0){
     G.gameOver=true;
     const p=G.players[playerIdx];
@@ -895,8 +936,12 @@ function checkWin(playerIdx){
     const reward=rewardCoins(iWon);
     document.getElementById('end-title').textContent=iWon?'Você venceu! 🎊':'Fim de jogo 😿';
     document.getElementById('end-text').textContent=iWon?'Parabéns, você zerou a mão primeiro!':(p.name+' ganhou essa rodada.');
-    document.getElementById('coin-reward').textContent='+'+reward+' moedas 🪙';const ready=checkMissionNotices();const mr=document.getElementById('mission-reward');if(mr)mr.textContent=ready.length?('🎯 '+ready.length+' missão(ões) pronta(s) no perfil!'):'';
+    document.getElementById('coin-reward').textContent='+'+reward+' moedas 🪙 (total: '+(ACC?ACC.coins:0)+')';
+    const ready=checkMissionNotices();
+    const mr=document.getElementById('mission-reward');
+    if(mr) mr.textContent=ready.length?('🎯 '+ready.length+' missão(ões) pronta(s) no perfil!'):'';
     document.getElementById('end-modal').classList.add('show');
+    showToast((iWon?'Vitória':'Derrota')+'! +'+reward+' 🪙');
   }
 }
 
@@ -947,12 +992,19 @@ function onDrawPileClick(){
   const seat=gameMode==='bots'?0:mySeat;
   // Se há pilha de +2/+4, comprar = receber a pilha inteira
   if(G.drawStack > 0){
-    // escudo só contra o primeiro +2 isolado sem pilha maior — simplificado: escudo anula se stack==2
-    if(seat===mySeat&&hasPower('shield2')&&!shieldUsed&&G.drawStack===2&&gameMode==='bots'){
-      shieldUsed=true; G.drawStack=0; showToast('🛡️ Escudo absorveu o +2!');
-      advanceTurn({type:'__draw_pass__'}); render();
-      if(gameMode==='bots') maybeRunBot();
-      return;
+    if(seat===mySeat && gameMode==='bots'){
+      if(hasPower('shield2')&&!shieldUsed&&G.drawStack===2){
+        shieldUsed=true; G.drawStack=0; showToast('🛡️ Escudo absorveu o +2!');
+        advanceTurn({type:'__draw_pass__'}); render();
+        if(gameMode==='bots') maybeRunBot();
+        return;
+      }
+      if(hasPower('megaShield')&&!shieldUsed&&G.drawStack>=4){
+        shieldUsed=true; G.drawStack=0; showToast('🏰 Escudo absorveu o +4!');
+        advanceTurn({type:'__draw_pass__'}); render();
+        if(gameMode==='bots') maybeRunBot();
+        return;
+      }
     }
     if(gameMode==='online'&&!isHost){sendMsg({type:'draw'});return}
     forceDrawStack(seat);
