@@ -478,13 +478,69 @@ function defaultAccount(name){
 }
 let ACC = null;
 let authMode = 'login';
+function applyAccountData(target, src){
+  if(!src) return target;
+  target.name = src.name || target.name;
+  target.coins = (src.coins!=null) ? src.coins : (target.coins||0);
+  target.powers = Array.isArray(src.powers) ? src.powers.slice() : (target.powers||[]);
+  target.wins = src.wins||0;
+  target.losses = src.losses||0;
+  target.games = src.games||0;
+  target.unoCalls = src.unoCalls||0;
+  target.wildsPlayed = src.wildsPlayed||0;
+  target.plus4Played = src.plus4Played||0;
+  target.missionsClaimed = Array.isArray(src.missionsClaimed) ? src.missionsClaimed.slice() : (target.missionsClaimed||[]);
+  if(src.uid) target.uid = src.uid;
+  return target;
+}
+function mergeAccounts(a, b){
+  // Junta local + nuvem sem perder progresso (pega o melhor)
+  if(!a) return b;
+  if(!b) return a;
+  const out = defaultAccount(a.name||b.name);
+  out.uid = a.uid||b.uid||null;
+  out.name = a.name||b.name||out.name;
+  out.coins = Math.max(a.coins||0, b.coins||0);
+  const pset = {};
+  (a.powers||[]).forEach(x=>pset[x]=1);
+  (b.powers||[]).forEach(x=>pset[x]=1);
+  out.powers = Object.keys(pset);
+  out.wins = Math.max(a.wins||0, b.wins||0);
+  out.losses = Math.max(a.losses||0, b.losses||0);
+  out.games = Math.max(a.games||0, b.games||0);
+  out.unoCalls = Math.max(a.unoCalls||0, b.unoCalls||0);
+  out.wildsPlayed = Math.max(a.wildsPlayed||0, b.wildsPlayed||0);
+  out.plus4Played = Math.max(a.plus4Played||0, b.plus4Played||0);
+  const mset = {};
+  (a.missionsClaimed||[]).forEach(x=>mset[x]=1);
+  (b.missionsClaimed||[]).forEach(x=>mset[x]=1);
+  out.missionsClaimed = Object.keys(mset);
+  return out;
+}
+function readLocalAccount(uid){
+  try {
+    if(uid){
+      const byUid = safeGet('mochiAcc_'+uid, '');
+      if(byUid) return JSON.parse(byUid);
+    }
+    const bak = safeGet('mochiAccBackup','');
+    if(bak) return JSON.parse(bak);
+  } catch(e){}
+  return null;
+}
 async function saveAccounts(){
   if(!ACC) return;
-  try { safeSet('mochiSession', ACC.name||''); safeSet('mochiAccBackup', JSON.stringify(ACC)); } catch(e){}
+  const uid = (auth && auth.currentUser && auth.currentUser.uid) || ACC.uid || 'local';
+  ACC.uid = uid;
+  // 1) Sempre salva local (não depende do Firebase)
+  try {
+    safeSet('mochiSession', ACC.name||'');
+    safeSet('mochiAccBackup', JSON.stringify(ACC));
+    safeSet('mochiAcc_'+uid, JSON.stringify(ACC));
+  } catch(e){ console.warn('local save', e); }
+  // 2) Tenta nuvem
   if(fbReady && auth && auth.currentUser && db){
     try {
-      const uid = auth.currentUser.uid;
-      ACC.uid = uid;
       const data = {
         name: ACC.name||'',
         coins: ACC.coins||0,
@@ -503,6 +559,7 @@ async function saveAccounts(){
       ]);
     } catch(e){ console.warn('Firestore save', e); }
   }
+  updateCoinUI();
 }
 function coins(){ return ACC ? (ACC.coins||0) : 0; }
 function hasPower(id){ return !!(ACC && ACC.powers && ACC.powers.indexOf(id)>=0); }
@@ -591,33 +648,38 @@ async function doAuth(){
   btn.textContent = oldText;
 }
 async function loadUserFromCloud(user){
-  ACC = defaultAccount(user.displayName||(user.email?user.email.split('@')[0]:'Jogador'));
-  ACC.uid = user.uid;
-  if(!db) return;
-  try {
-    const snap = await Promise.race([
-      db.collection('users').doc(user.uid).get(),
-      new Promise((_,rej)=>setTimeout(()=>rej(new Error('fs-timeout')),8000))
-    ]);
-    if(snap && snap.exists){
-      const d = snap.data();
-      ACC.name = d.name || ACC.name;
-      ACC.coins = d.coins!=null ? d.coins : 30;
-      ACC.powers = d.powers || [];
-      ACC.wins = d.wins||0;
-      ACC.losses = d.losses||0;
-      ACC.games = d.games||0;
-      ACC.unoCalls = d.unoCalls||0;
-      ACC.wildsPlayed = d.wildsPlayed||0;
-      ACC.plus4Played = d.plus4Played||0;
-      ACC.missionsClaimed = d.missionsClaimed||[];
-    } else {
-      saveAccounts().catch(()=>{});
-    }
-  } catch(e){
-    console.warn('load cloud', e);
-    // entra mesmo sem Firestore
+  const uid = user.uid;
+  let acc = defaultAccount(user.displayName||(user.email?user.email.split('@')[0]:'Jogador'));
+  acc.uid = uid;
+  // 1) Restaura progresso LOCAL primeiro (mesmo PC / mesmo navegador)
+  const local = readLocalAccount(uid);
+  if(local){
+    acc = mergeAccounts(acc, local);
+    acc.uid = uid;
+    if(local.name) acc.name = local.name;
   }
+  // 2) Tenta nuvem e mescla (não apaga progresso)
+  if(db){
+    try {
+      const snap = await Promise.race([
+        db.collection('users').doc(uid).get(),
+        new Promise((_,rej)=>setTimeout(()=>rej(new Error('fs-timeout')),8000))
+      ]);
+      if(snap && snap.exists){
+        const d = snap.data();
+        const cloud = defaultAccount(d.name||acc.name);
+        cloud.uid = uid;
+        applyAccountData(cloud, d);
+        acc = mergeAccounts(acc, cloud);
+        acc.uid = uid;
+      }
+    } catch(e){
+      console.warn('load cloud', e);
+    }
+  }
+  ACC = acc;
+  // 3) Regrava local + nuvem com o resultado mesclado
+  try { await saveAccounts(); } catch(e){}
 }
 function doLogin(){ doAuth(); }
 function doLogout(){
@@ -1385,11 +1447,22 @@ if(fbReady && auth){
       showToast('Carregando perfil...');
       await loadUserFromCloud(user);
       authHandled = true;
+      updateCoinUI();
       enterLobby();
+      showToast('Olá, '+(ACC&&ACC.name?ACC.name:'')+'! 🪙 '+(ACC?ACC.coins:0));
     } else if(!document.getElementById('game-screen').classList.contains('show')){
       showScreen('login-screen');
     }
   });
+} else {
+  // Sem Firebase: tenta backup local
+  try {
+    const bak = safeGet('mochiAccBackup','');
+    if(bak){
+      ACC = JSON.parse(bak);
+      enterLobby();
+    }
+  } catch(e){}
 }
 </script>
 </body>
