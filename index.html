@@ -946,20 +946,55 @@ function enforceThemeRights(){
 async function fetchRanking(){
   cachedRanking = [];
   myRankPos = null;
-  if(!fbReady || !db){
-    // fallback local: só o próprio jogador
-    if(ACC){
-      cachedRanking = [{uid:ACC.uid||'local', name:ACC.name, wins:ACC.wins||0, games:ACC.games||0, coins:ACC.coins||0}];
-      myRankPos = 1;
+
+  function sortList(list){
+    list.sort((a,b)=>{
+      const dw = (b.wins||0)-(a.wins||0);
+      if(dw!==0) return dw;
+      const dg = (b.games||0)-(a.games||0);
+      if(dg!==0) return dg;
+      return (b.coins||0)-(a.coins||0);
+    });
+    return list;
+  }
+  function injectMe(list){
+    if(!ACC) return list;
+    const uid = ACC.uid || 'local';
+    const idx = list.findIndex(x=>x.uid===uid);
+    const me = {uid:uid, name:ACC.name||'Você', wins:ACC.wins||0, games:ACC.games||0, coins:ACC.coins||0};
+    if(idx<0) list.push(me);
+    else {
+      // usa o maior progresso (nuvem vs local)
+      list[idx].wins = Math.max(list[idx].wins||0, me.wins||0);
+      list[idx].games = Math.max(list[idx].games||0, me.games||0);
+      list[idx].coins = Math.max(list[idx].coins||0, me.coins||0);
+      if(ACC.name) list[idx].name = ACC.name;
     }
+    return list;
+  }
+  function finalize(list){
+    sortList(list);
+    if(ACC){
+      const uid = ACC.uid || 'local';
+      const i = list.findIndex(x=>x.uid===uid);
+      myRankPos = i>=0 ? (i+1) : null;
+    }
+    cachedRanking = list.slice(0, 50);
+    enforceThemeRights();
     return cachedRanking;
   }
+
+  if(!fbReady || !db){
+    return finalize(injectMe([]));
+  }
+
+  let list = [];
+  // 1) tenta orderBy wins
   try {
     const snap = await Promise.race([
-      db.collection('users').orderBy('wins','desc').limit(30).get(),
+      db.collection('users').orderBy('wins','desc').limit(50).get(),
       new Promise((_,rej)=>setTimeout(()=>rej(new Error('rank-timeout')),10000))
     ]);
-    const list = [];
     snap.forEach(doc=>{
       const d = doc.data()||{};
       list.push({
@@ -970,27 +1005,33 @@ async function fetchRanking(){
         coins: d.coins||0
       });
     });
-    // se o usuário local não está na lista, injeta para cálculo de posição
-    if(ACC && ACC.uid){
-      const idx = list.findIndex(x=>x.uid===ACC.uid);
-      if(idx<0){
-        list.push({uid:ACC.uid, name:ACC.name, wins:ACC.wins||0, games:ACC.games||0, coins:ACC.coins||0});
-        list.sort((a,b)=> (b.wins||0)-(a.wins||0) || (b.coins||0)-(a.coins||0));
-      }
-      myRankPos = list.findIndex(x=>x.uid===ACC.uid) + 1;
-      if(myRankPos<=0) myRankPos = null;
-    }
-    cachedRanking = list.slice(0,20);
-  } catch(e){
-    console.warn('ranking', e);
-    if(ACC){
-      cachedRanking = [{uid:ACC.uid||'local', name:ACC.name, wins:ACC.wins||0, games:ACC.games||0, coins:ACC.coins||0}];
-      myRankPos = 1;
+  } catch(e1){
+    console.warn('ranking orderBy falhou, tentando get simples', e1);
+    // 2) fallback: lê todos (ou limit) sem orderBy e ordena no cliente
+    try {
+      const snap2 = await Promise.race([
+        db.collection('users').limit(50).get(),
+        new Promise((_,rej)=>setTimeout(()=>rej(new Error('rank-timeout2')),10000))
+      ]);
+      snap2.forEach(doc=>{
+        const d = doc.data()||{};
+        list.push({
+          uid: doc.id,
+          name: d.name||'Jogador',
+          wins: d.wins||0,
+          games: d.games||0,
+          coins: d.coins||0
+        });
+      });
+    } catch(e2){
+      console.warn('ranking get falhou', e2);
+      list = [];
     }
   }
-  enforceThemeRights();
-  return cachedRanking;
+
+  return finalize(injectMe(list));
 }
+
 function openRanking(){
   showScreen('ranking-screen');
   renderRanking();
@@ -1008,16 +1049,28 @@ function renderRanking(){
       const div = document.createElement('div');
       div.className = 'rank-row';
       let posCls = pos===1?'gold':(pos===2?'silver':(pos===3?'bronze':''));
-      let medal = pos===1?'🥇':(pos===2?'🥈':(pos===3?'🥉':String(pos)));
+      let medal = pos===1?'🥇':(pos===2?'🥈':(pos===3?'🥉':'#'+pos));
       let prize = RANK_PRIZES[pos] ? ('🪙 '+RANK_PRIZES[pos]) : '';
-      const me = ACC && (p.uid===ACC.uid);
+      const me = ACC && (p.uid===(ACC.uid||'local') || p.uid===ACC.uid);
       div.innerHTML = '<div class="rank-pos '+posCls+'">'+medal+'</div>'+
         '<div class="rank-info"><div class="rname">'+(p.name||'?')+(me?' <span class="rank-badge">Você</span>':'')+'</div>'+
         '<div class="rstats">🏆 '+(p.wins||0)+' vitórias · 🎮 '+(p.games||0)+' partidas</div></div>'+
         (prize?'<div class="rank-prize">'+prize+'</div>':'');
       listEl.appendChild(div);
     });
+    if(cachedRanking.length===1){
+      const tip=document.createElement('p');
+      tip.style.cssText='text-align:center;font-size:12px;color:var(--ink-soft);margin:8px 0 0';
+      tip.textContent='Só você no ranking por enquanto. Quando outros jogadores entrarem com a mesma conta Firebase, eles aparecem aqui.';
+      listEl.appendChild(tip);
+    } else {
+      const tip=document.createElement('p');
+      tip.style.cssText='text-align:center;font-size:11px;color:var(--ink-soft);margin:8px 0 0';
+      tip.textContent=cachedRanking.length+' jogadores no ranking';
+      listEl.appendChild(tip);
+    }
   }
+
   const lab = document.getElementById('my-rank-label');
   if(lab){
     if(myRankPos) lab.textContent = '#'+myRankPos + (myRankPos<=3?' 🎉 Top 3!':'');
