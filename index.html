@@ -646,6 +646,19 @@ async function saveAccounts(){
         db.collection('users').doc(uid).set(data, {merge:true}),
         new Promise((_,rej)=>setTimeout(()=>rej(new Error('save-timeout')),8000))
       ]);
+      // ranking público (só stats, para todos verem)
+      try {
+        await Promise.race([
+          db.collection('ranking').doc(uid).set({
+            name: ACC.name||'',
+            wins: ACC.wins||0,
+            games: ACC.games||0,
+            coins: ACC.coins||0,
+            updatedAt: Date.now()
+          }, {merge:true}),
+          new Promise((_,rej)=>setTimeout(()=>rej(new Error('rank-save-timeout')),5000))
+        ]);
+      } catch(eR){ console.warn('ranking save', eR); }
     } catch(e){ console.warn('Firestore save', e); }
   }
   updateCoinUI();
@@ -990,6 +1003,15 @@ async function fetchRanking(){
     enforceThemeRights();
     return cachedRanking;
   }
+  function pushDoc(list, id, d){
+    list.push({
+      uid: id,
+      name: d.name||'Jogador',
+      wins: d.wins||0,
+      games: d.games||0,
+      coins: d.coins||0
+    });
+  }
 
   if(!fbReady || !db){
     const list = [];
@@ -1000,44 +1022,56 @@ async function fetchRanking(){
   }
 
   let list = [];
+
+  // 1) coleção pública "ranking" (melhor para listar todo mundo)
   try {
-    const snap = await Promise.race([
-      db.collection('users').orderBy('wins','desc').limit(80).get(),
-      new Promise((_,rej)=>setTimeout(()=>rej(new Error('rank-timeout')),10000))
-    ]);
-    snap.forEach(doc=>{
-      const d = doc.data()||{};
-      list.push({
-        uid: doc.id,
-        name: d.name||'Jogador',
-        wins: d.wins||0,
-        games: d.games||0,
-        coins: d.coins||0
-      });
-    });
-  } catch(e1){
-    console.warn('ranking orderBy falhou, tentando get simples', e1);
+    let snap = null;
     try {
-      const snap2 = await Promise.race([
-        db.collection('users').limit(80).get(),
-        new Promise((_,rej)=>setTimeout(()=>rej(new Error('rank-timeout2')),10000))
+      snap = await Promise.race([
+        db.collection('ranking').orderBy('wins','desc').limit(80).get(),
+        new Promise((_,rej)=>setTimeout(()=>rej(new Error('rank-timeout')),8000))
       ]);
-      snap2.forEach(doc=>{
-        const d = doc.data()||{};
-        list.push({
-          uid: doc.id,
-          name: d.name||'Jogador',
-          wins: d.wins||0,
-          games: d.games||0,
-          coins: d.coins||0
-        });
+    } catch(eOrd){
+      snap = await Promise.race([
+        db.collection('ranking').limit(80).get(),
+        new Promise((_,rej)=>setTimeout(()=>rej(new Error('rank-timeout2')),8000))
+      ]);
+    }
+    if(snap){
+      snap.forEach(doc=>{
+        pushDoc(list, doc.id, doc.data()||{});
       });
+    }
+  } catch(e1){
+    console.warn('ranking collection', e1);
+  }
+
+  // 2) se ranking veio vazio, tenta users
+  if(list.length === 0){
+    try {
+      let snap = null;
+      try {
+        snap = await Promise.race([
+          db.collection('users').orderBy('wins','desc').limit(80).get(),
+          new Promise((_,rej)=>setTimeout(()=>rej(new Error('users-timeout')),8000))
+        ]);
+      } catch(eU){
+        snap = await Promise.race([
+          db.collection('users').limit(80).get(),
+          new Promise((_,rej)=>setTimeout(()=>rej(new Error('users-timeout2')),8000))
+        ]);
+      }
+      if(snap){
+        snap.forEach(doc=>{
+          pushDoc(list, doc.id, doc.data()||{});
+        });
+      }
     } catch(e2){
-      console.warn('ranking get falhou', e2);
-      list = [];
+      console.warn('users ranking', e2);
     }
   }
 
+  // injeta / atualiza você com dados locais
   if(ACC){
     const uid = ACC.uid || 'local';
     const idx = list.findIndex(x=>x.uid===uid);
@@ -1155,20 +1189,22 @@ function renderRanking(){
       const wins = p.wins||0;
       const eligible = wins >= MIN_WINS;
       let posCls = '';
-      let medal = '#'+pos;
+      let medal = '';
       let prize = '';
-      // medalhas só para top 3 com 15+ wins
+      // Medalhas/prêmios só Top 3 com 15+ vitórias — senão só número discreto
       if(eligible){
         const elig = eligibleList();
         const eidx = elig.findIndex(x => x.uid === p.uid);
         if(eidx === 0){ posCls='gold'; medal='🥇'; prize='🪙 500'; }
         else if(eidx === 1){ posCls='silver'; medal='🥈'; prize='🪙 300'; }
         else if(eidx === 2){ posCls='bronze'; medal='🥉'; prize='🪙 100'; }
-        else { medal = '#'+pos; }
+        else { medal = String(pos); }
+      } else {
+        medal = String(pos); // sem # dourado / sem “1º oficial”
       }
       const me = ACC && (p.uid===(ACC.uid||'local') || p.uid===ACC.uid);
       div.innerHTML = '<div class="rank-pos '+posCls+'">'+medal+'</div>'+
-        '<div class="rank-info"><div class="rname">'+(p.name||'?')+(me?' <span class="rank-badge">Você</span>':'')+(!eligible?' <span style="font-size:10px;color:var(--ink-soft)">(precisa 15 vitórias)</span>':'')+'</div>'+
+        '<div class="rank-info"><div class="rname">'+(p.name||'?')+(me?' <span class="rank-badge">Você</span>':'')+(!eligible?' <span style="font-size:10px;color:var(--ink-soft)">(15+ p/ prêmio)</span>':'')+'</div>'+
         '<div class="rstats">🏆 '+wins+' vitórias · 🎮 '+(p.games||0)+' partidas</div></div>'+
         (prize?'<div class="rank-prize">'+prize+'</div>':'');
       listEl.appendChild(div);
