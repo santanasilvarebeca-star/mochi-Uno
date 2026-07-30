@@ -276,7 +276,7 @@ input.room-input{font-size:20px;letter-spacing:5px;text-transform:uppercase}
 <div id="ranking-screen" class="screen">
   <div class="card-panel" style="text-align:left">
     <h2 style="text-align:center">🏅 Ranking</h2>
-    <p style="text-align:center;font-size:13px;color:var(--ink-soft);margin:0 0 10px">Top 3 (mais vitórias) ganham prêmios e podem mudar a cor do jogo!</p>
+    <p style="text-align:center;font-size:13px;color:var(--ink-soft);margin:0 0 10px">Top 3 com 15+ vitórias ganham prêmios e podem mudar a cor do jogo!</p>
     <div id="my-rank-box" style="background:#fff;border-radius:14px;padding:12px;margin-bottom:12px;text-align:center;box-shadow:0 2px 0 rgba(0,0,0,.08)">
       <div style="font-size:12px;color:var(--ink-soft)">Sua posição</div>
       <div style="font-family:'Baloo 2';font-size:22px;color:var(--accent-dark)" id="my-rank-label">—</div>
@@ -653,6 +653,15 @@ async function saveAccounts(){
 function coins(){ return ACC ? (ACC.coins||0) : 0; }
 function hasPower(id){ return !!(ACC && ACC.powers && ACC.powers.indexOf(id)>=0); }
 let G=null, gameMode='bots', mySeat=0, peer=null, conn=null, conns=[], isHost=false, roomCode='', shieldUsed=false, onlineMaxPlayers=2;
+let seatPowers = {};
+let shieldUsesBySeat = {}; // seat -> [power ids] no online
+function seatHasPower(seat, id){
+  if(gameMode==='bots') return hasPower(id);
+  const list = seatPowers[seat] || [];
+  return list.indexOf(id)>=0;
+}
+function localSeat(){ return gameMode==='bots' ? 0 : mySeat; }
+
 let shieldUsesLeft=0, stackCutUsed=false, freePassUsed=false, peekUsed=false, recycleUsed=false;
 let cachedRanking=[]; // [{uid,name,wins,games,coins}]
 let myRankPos=null; // 1-based or null
@@ -928,8 +937,14 @@ function applyTheme(themeId){
   r.style.setProperty('--azul-dark', '#2f9ee0');
 }
 function canChangeTheme(){
-  return myRankPos!=null && myRankPos>=1 && myRankPos<=3;
+  const MIN_WINS = 15;
+  if(!ACC || (ACC.wins||0) < MIN_WINS) return false;
+  const elig = (cachedRanking||[]).filter(p => (p.wins||0) >= MIN_WINS);
+  const uid = ACC.uid || 'local';
+  const idx = elig.findIndex(x => x.uid === uid);
+  return idx >= 0 && idx < 3;
 }
+
 function enforceThemeRights(){
   if(!ACC) { applyTheme('default'); return; }
   if(canChangeTheme()){
@@ -1048,28 +1063,11 @@ function renderRanking(){
   const listEl = document.getElementById('ranking-list');
   if(!listEl) return;
   listEl.innerHTML = '';
+  const MIN_WINS = 15;
   const myWins = ACC ? (ACC.wins||0) : 0;
 
   const lab = document.getElementById('my-rank-label');
   const claim = document.getElementById('rank-claim-area');
-
-  // quantas vitórias faltam pro Top 3
-  function gapToTop3Html(){
-    if(!ACC) return '';
-    if(myRankPos && myRankPos<=3){
-      return '<div style="font-size:12px;color:#2a8a4a;margin-top:6px">Você está no Top 3! 🎉</div>';
-    }
-    // vitórias do 3º (ou do último se tiver menos de 3)
-    let thirdWins = 0;
-    if(cachedRanking.length>=3) thirdWins = cachedRanking[2].wins||0;
-    else if(cachedRanking.length>0) thirdWins = cachedRanking[cachedRanking.length-1].wins||0;
-    const need = Math.max(0, thirdWins - myWins + 1);
-    if(cachedRanking.length < 3){
-      // ainda há vaga no top 3
-      return '<div style="font-size:12px;color:var(--ink-soft);margin-top:6px">Ainda há vaga no Top 3. Com mais vitórias você sobe!</div>';
-    }
-    return '<div style="font-size:13px;color:var(--ink-soft);margin-top:6px">Faltam <b style="color:var(--accent-dark)">'+need+'</b> vitória(s) para alcançar o Top 3<br><span style="font-size:11px">(3º lugar tem '+thirdWins+' vitórias · você tem '+myWins+')</span></div>';
-  }
 
   function posLabel(n){
     if(!n) return '—';
@@ -1077,9 +1075,56 @@ function renderRanking(){
     return (ord[n]||(n+'º'))+' lugar';
   }
 
+  // Top 3 “oficial” só conta quem tem MIN_WINS+
+  function eligibleList(){
+    return (cachedRanking||[]).filter(p => (p.wins||0) >= MIN_WINS);
+  }
+  function isPrizeEligible(){
+    if(!ACC || myWins < MIN_WINS) return false;
+    if(!myRankPos || myRankPos > 3) return false;
+    // também precisa estar no top 3 entre elegíveis
+    const elig = eligibleList();
+    const uid = ACC.uid || 'local';
+    const idx = elig.findIndex(x => x.uid === uid);
+    return idx >= 0 && idx < 3;
+  }
+  function prizeRankPos(){
+    // posição entre elegíveis (1-3) ou null
+    if(!ACC || myWins < MIN_WINS) return null;
+    const elig = eligibleList();
+    const uid = ACC.uid || 'local';
+    const idx = elig.findIndex(x => x.uid === uid);
+    return idx >= 0 ? (idx+1) : null;
+  }
+
+  function gapToTop3Html(){
+    if(!ACC) return '';
+    if(isPrizeEligible()){
+      return '<div style="font-size:12px;color:#2a8a4a;margin-top:6px">Você está no Top 3! 🎉</div>';
+    }
+    // falta para 15 wins
+    if(myWins < MIN_WINS){
+      const faltam = MIN_WINS - myWins;
+      return '<div style="font-size:13px;color:var(--ink-soft);margin-top:6px">Faltam <b style="color:var(--accent-dark)">'+faltam+'</b> vitória(s) para liberar prêmios do ranking<br><span style="font-size:11px">(mínimo '+MIN_WINS+' vitórias · você tem '+myWins+')</span></div>';
+    }
+    // tem 15+ mas fora do top 3
+    const elig = eligibleList();
+    let thirdWins = 0;
+    if(elig.length >= 3) thirdWins = elig[2].wins||0;
+    else if(elig.length > 0) thirdWins = elig[elig.length-1].wins||0;
+    const need = Math.max(0, thirdWins - myWins + 1);
+    if(elig.length < 3){
+      return '<div style="font-size:12px;color:var(--ink-soft);margin-top:6px">Você já pode competir! Ainda há vaga no Top 3.</div>';
+    }
+    return '<div style="font-size:13px;color:var(--ink-soft);margin-top:6px">Faltam <b style="color:var(--accent-dark)">'+need+'</b> vitória(s) para o Top 3<br><span style="font-size:11px">(3º tem '+thirdWins+' · você tem '+myWins+')</span></div>';
+  }
+
   if(lab){
     if(myRankPos){
-      lab.textContent = posLabel(myRankPos) + (myRankPos<=3?' 🎉 Top 3!':'');
+      let extra = '';
+      if(isPrizeEligible()) extra = ' 🎉 Top 3!';
+      else if(myWins < MIN_WINS) extra = '';
+      lab.textContent = posLabel(myRankPos) + extra;
     } else {
       lab.textContent = 'Sem posição ainda';
     }
@@ -1087,13 +1132,14 @@ function renderRanking(){
 
   if(claim){
     let html = gapToTop3Html();
-    if(ACC && myRankPos && myRankPos<=3){
-      const prize = RANK_PRIZES[myRankPos];
-      const claimed = (ACC.rankPrizesClaimed||[]).indexOf(myRankPos)>=0;
+    const pPos = prizeRankPos();
+    if(ACC && isPrizeEligible() && pPos){
+      const prize = RANK_PRIZES[pPos];
+      const claimed = (ACC.rankPrizesClaimed||[]).indexOf(pPos)>=0;
       if(claimed){
-        html += '<div style="font-size:12px;color:#2a8a4a;margin-top:6px">✓ Prêmio do Top '+myRankPos+' já resgatado</div>';
-      } else {
-        html += '<div style="margin-top:8px"><button class="btn small" onclick="claimRankPrize()">Resgatar prêmio Top '+myRankPos+': 🪙 '+prize+'</button></div>';
+        html += '<div style="font-size:12px;color:#2a8a4a;margin-top:6px">✓ Prêmio do Top '+pPos+' já resgatado</div>';
+      } else if(prize){
+        html += '<div style="margin-top:8px"><button class="btn small" onclick="claimRankPrize()">Resgatar prêmio Top '+pPos+': 🪙 '+prize+'</button></div>';
       }
     }
     claim.innerHTML = html;
@@ -1106,36 +1152,47 @@ function renderRanking(){
       const pos = i+1;
       const div = document.createElement('div');
       div.className = 'rank-row';
-      let posCls = pos===1?'gold':(pos===2?'silver':(pos===3?'bronze':''));
-      let medal = pos===1?'🥇':(pos===2?'🥈':(pos===3?'🥉':'#'+pos));
-      let prize = RANK_PRIZES[pos] ? ('🪙 '+RANK_PRIZES[pos]) : '';
+      const wins = p.wins||0;
+      const eligible = wins >= MIN_WINS;
+      let posCls = '';
+      let medal = '#'+pos;
+      let prize = '';
+      // medalhas só para top 3 com 15+ wins
+      if(eligible){
+        const elig = eligibleList();
+        const eidx = elig.findIndex(x => x.uid === p.uid);
+        if(eidx === 0){ posCls='gold'; medal='🥇'; prize='🪙 500'; }
+        else if(eidx === 1){ posCls='silver'; medal='🥈'; prize='🪙 300'; }
+        else if(eidx === 2){ posCls='bronze'; medal='🥉'; prize='🪙 100'; }
+        else { medal = '#'+pos; }
+      }
       const me = ACC && (p.uid===(ACC.uid||'local') || p.uid===ACC.uid);
       div.innerHTML = '<div class="rank-pos '+posCls+'">'+medal+'</div>'+
-        '<div class="rank-info"><div class="rname">'+(p.name||'?')+(me?' <span class="rank-badge">Você</span>':'')+'</div>'+
-        '<div class="rstats">🏆 '+(p.wins||0)+' vitórias · 🎮 '+(p.games||0)+' partidas</div></div>'+
+        '<div class="rank-info"><div class="rname">'+(p.name||'?')+(me?' <span class="rank-badge">Você</span>':'')+(!eligible?' <span style="font-size:10px;color:var(--ink-soft)">(precisa 15 vitórias)</span>':'')+'</div>'+
+        '<div class="rstats">🏆 '+wins+' vitórias · 🎮 '+(p.games||0)+' partidas</div></div>'+
         (prize?'<div class="rank-prize">'+prize+'</div>':'');
       listEl.appendChild(div);
     });
     const tip=document.createElement('p');
     tip.style.cssText='text-align:center;font-size:11px;color:var(--ink-soft);margin:8px 0 0';
-    tip.textContent = cachedRanking.length+' jogador(es) · ordenado por vitórias';
+    tip.textContent = cachedRanking.length+' jogador(es) · prêmios só com 15+ vitórias no Top 3';
     listEl.appendChild(tip);
   }
 
-  // theme panel
+  // theme: só se prize eligible
   const panel = document.getElementById('theme-panel');
   const grid = document.getElementById('theme-grid');
   if(panel && grid){
-    const ok = canChangeTheme();
+    const ok = isPrizeEligible();
     panel.style.display = 'block';
     grid.innerHTML = '';
     const names = {default:'Rosa',oceano:'Oceano',floresta:'Floresta',sol:'Sol',noite:'Noite',morango:'Morango'};
     Object.keys(THEMES).forEach(id=>{
-      const t = THEMES[id];
+      const th = THEMES[id];
       const btn = document.createElement('button');
       btn.className = 'theme-opt'+(ACC&&ACC.theme===id?' active':'')+(ok?'':' theme-locked');
-      btn.style.background = 'linear-gradient(135deg,'+t.bgA+','+t.bgB+')';
-      btn.style.color = t.ink;
+      btn.style.background = 'linear-gradient(135deg,'+th.bgA+','+th.bgB+')';
+      btn.style.color = th.ink;
       btn.textContent = names[id]||id;
       if(ok) btn.onclick = ()=>setMyTheme(id);
       grid.appendChild(btn);
@@ -1143,28 +1200,43 @@ function renderRanking(){
     if(!ok){
       const note = document.createElement('p');
       note.style.cssText='grid-column:1/-1;font-size:11px;color:var(--ink-soft);text-align:center;margin:0';
-      note.textContent = '🔒 Disponível apenas para o Top 3 do ranking';
+      note.textContent = '🔒 Top 3 com no mínimo 15 vitórias';
       grid.appendChild(note);
     }
   }
 }
 
 function claimRankPrize(){
-  if(!ACC || !myRankPos || myRankPos>3) return;
-  const prize = RANK_PRIZES[myRankPos];
+  if(!ACC) return;
+  const MIN_WINS = 15;
+  if((ACC.wins||0) < MIN_WINS){
+    showToast('Precisa de pelo menos 15 vitórias para resgatar');
+    return;
+  }
+  // posição entre elegíveis
+  const elig = (cachedRanking||[]).filter(p => (p.wins||0) >= MIN_WINS);
+  const uid = ACC.uid || 'local';
+  const idx = elig.findIndex(x => x.uid === uid);
+  if(idx < 0 || idx > 2){
+    showToast('Só o Top 3 (com 15+ vitórias) pode resgatar');
+    return;
+  }
+  const pos = idx + 1;
+  const prize = RANK_PRIZES[pos];
   if(!prize) return;
   ACC.rankPrizesClaimed = ACC.rankPrizesClaimed || [];
-  if(ACC.rankPrizesClaimed.indexOf(myRankPos)>=0){
-    showToast('Prêmio do Top '+myRankPos+' já foi resgatado');
+  if(ACC.rankPrizesClaimed.indexOf(pos)>=0){
+    showToast('Prêmio do Top '+pos+' já foi resgatado');
     return;
   }
   ACC.coins = (ACC.coins||0) + prize;
-  ACC.rankPrizesClaimed.push(myRankPos);
+  ACC.rankPrizesClaimed.push(pos);
   saveAccounts();
   updateCoinUI();
-  showToast('🏅 Top '+myRankPos+'! +'+prize+' moedas 🪙');
+  showToast('🏅 Top '+pos+'! +'+prize+' moedas 🪙');
   renderRanking();
 }
+
 function setMyTheme(id){
   if(!canChangeTheme()){ showToast('Só o Top 3 pode mudar a cor'); return; }
   if(!THEMES[id]) return;
@@ -1224,6 +1296,8 @@ function newGame(){
   document.getElementById('end-modal').classList.remove('show');
   shieldUsed=false;
   shieldUsesLeft = hasPower('doubleShield') ? 2 : 1;
+  shieldUsesBySeat = {};
+  window._recycleBySeat = {};
   stackCutUsed=false; freePassUsed=false; peekUsed=false; recycleUsed=false;
   const deck=shuffle(buildDeck());
   let players;
@@ -1239,56 +1313,69 @@ function newGame(){
     for(let i=0;i<n;i++){
       let pname = 'Jogador '+(i+1);
       if(i===0) pname = isHost ? (ACC?ACC.name:'Host') : 'Host';
-      else if(!isHost && i===mySeat) pname = ACC?ACC.name:('Jogador '+(i+1));
-      else pname = 'Jogador '+(i+1);
+      else {
+        const ent = conns.find(x=>x.seat===i && x.open);
+        if(ent && ent.name) pname = ent.name;
+        else if(!isHost && i===mySeat) pname = ACC?ACC.name:('Jogador '+(i+1));
+      }
       players.push({name:pname, hand:[], isBot:false});
     }
   }
   for(let i=0;i<7;i++) players.forEach(p=>p.hand.push(deck.pop()));
 
-  // start powers for local player
-  const seat = gameMode==='bots'?0:mySeat;
-  if(gameMode==='bots' || isHost){
-    if(hasPower('start4')) players[0].hand.push({color:'wild',type:'wild4'});
-    if(hasPower('startWild')) players[0].hand.push({color:'wild',type:'wild'});
-    if(hasPower('startSkip')) players[0].hand.push({color:COLORS[Math.floor(Math.random()*4)],type:'skip'});
-    if(hasPower('startReverse')) players[0].hand.push({color:COLORS[Math.floor(Math.random()*4)],type:'reverse'});
-    if(hasPower('startDraw2')) players[0].hand.push({color:COLORS[Math.floor(Math.random()*4)],type:'draw2'});
-    if(hasPower('startZero')) players[0].hand.push({color:COLORS[Math.floor(Math.random()*4)],type:'number',value:0});
-    if(hasPower('startPair')){
+  // Poderes iniciais por assento (online: host aplica para todos via seatPowers)
+  function applyStartPowers(seatIdx){
+    if(seatIdx<0 || seatIdx>=players.length) return;
+    const sp = (id)=> seatHasPower(seatIdx, id);
+    if(sp('start4')) players[seatIdx].hand.push({color:'wild',type:'wild4'});
+    if(sp('startWild')) players[seatIdx].hand.push({color:'wild',type:'wild'});
+    if(sp('startSkip')) players[seatIdx].hand.push({color:COLORS[Math.floor(Math.random()*4)],type:'skip'});
+    if(sp('startReverse')) players[seatIdx].hand.push({color:COLORS[Math.floor(Math.random()*4)],type:'reverse'});
+    if(sp('startDraw2')) players[seatIdx].hand.push({color:COLORS[Math.floor(Math.random()*4)],type:'draw2'});
+    if(sp('startZero')) players[seatIdx].hand.push({color:COLORS[Math.floor(Math.random()*4)],type:'number',value:0});
+    if(sp('startPair')){
       const col=COLORS[Math.floor(Math.random()*4)];
       const val=1+Math.floor(Math.random()*9);
-      players[0].hand.push({color:col,type:'number',value:val});
-      players[0].hand.push({color:col,type:'number',value:val});
+      players[seatIdx].hand.push({color:col,type:'number',value:val});
+      players[seatIdx].hand.push({color:col,type:'number',value:val});
     }
-    if(hasPower('extraCard')&&deck.length) players[0].hand.push(deck.pop());
-    if(hasPower('smallHand') && players[0].hand.length>6){
-      // Devolve cartas extras até 6, protegendo cartas de poderes iniciais
-      // (+4, coringa, +2, bloqueio, inversão). Prefere remover números comuns.
+    if(sp('extraCard')&&deck.length) players[seatIdx].hand.push(deck.pop());
+    if(sp('smallHand') && players[seatIdx].hand.length>6){
       function isProtectedStartCard(c){
         if(!c) return false;
         return c.type==='wild' || c.type==='wild4' || c.type==='draw2' || c.type==='skip' || c.type==='reverse';
       }
-      while(players[0].hand.length>6){
+      while(players[seatIdx].hand.length>6){
         let removeIdx = -1;
-        // 1) número comum (não 0 especial se possível, mas qualquer number serve)
-        for(let i=players[0].hand.length-1;i>=0;i--){
-          const c=players[0].hand[i];
+        for(let i=players[seatIdx].hand.length-1;i>=0;i--){
+          const c=players[seatIdx].hand[i];
           if(c && c.type==='number' && !isProtectedStartCard(c)){ removeIdx=i; break; }
         }
-        // 2) se só restam especiais, remove a menos valiosa (nunca wild4 se der)
         if(removeIdx<0){
-          for(let i=players[0].hand.length-1;i>=0;i--){
-            const c=players[0].hand[i];
+          for(let i=players[seatIdx].hand.length-1;i>=0;i--){
+            const c=players[seatIdx].hand[i];
             if(c && c.type!=='wild4' && c.type!=='wild'){ removeIdx=i; break; }
           }
         }
-        // 3) último recurso: qualquer carta
-        if(removeIdx<0) removeIdx = players[0].hand.length-1;
-        const c = players[0].hand.splice(removeIdx,1)[0];
+        if(removeIdx<0) removeIdx = players[seatIdx].hand.length-1;
+        const c = players[seatIdx].hand.splice(removeIdx,1)[0];
         if(c) deck.push(c);
       }
       shuffle(deck);
+    }
+  }
+  if(gameMode==='bots'){
+    // local usa ACC
+    seatPowers = {0: (ACC && ACC.powers) ? ACC.powers.slice() : []};
+    applyStartPowers(0);
+  } else if(isHost){
+    // host: assento 0 = host; demais já vieram no hello/powers
+    seatPowers[0] = (ACC && ACC.powers) ? ACC.powers.slice() : (seatPowers[0]||[]);
+    for(let s=0;s<players.length;s++) applyStartPowers(s);
+    // flags de uso por partida no host para cada assento
+    shieldUsesBySeat = {};
+    for(let s=0;s<players.length;s++){
+      shieldUsesBySeat[s] = seatHasPower(s,'doubleShield') ? 2 : (seatHasPower(s,'shield2')||seatHasPower(s,'megaShield') ? 1 : 0);
     }
   }
 
@@ -1337,12 +1424,12 @@ function advanceTurn(card){
   if(card.type==='reverse'){
     G.dir*=-1;
     if(n===2) steps=2;
-    else if(hasPower('reverseMaster') && (gameMode==='bots' ? G.turn===0 : G.turn===mySeat)) steps=2;
+    else if(seatHasPower(G.turn, 'reverseMaster')) steps=2;
     showEffect('reverse','');
   }
   if(card.type==='skip'){
     steps = 2;
-    if(hasPower('skipMaster') && n>=3 && (gameMode==='bots' ? G.turn===0 : G.turn===mySeat)) steps = 3;
+    if(seatHasPower(G.turn, 'skipMaster') && n>=3) steps = 3;
     const skipTarget = ((G.turn+G.dir)%n+n)%n;
     // if steps=3, show effect for the jumped player too
     showEffect('skip',G.players[nextTarget].name);shakeTarget(nextTarget);
@@ -1355,7 +1442,7 @@ function advanceTurn(card){
   if(card.type==='draw2'){
     let add = 2;
     // Mestre da pilha: se quem jogou tem o poder
-    if(hasPower('stackMaster') && (gameMode==='bots' ? G.turn===0 : G.turn===mySeat)) add = 3;
+    if(seatHasPower(G.turn, 'stackMaster')) add = 3;
     G.drawStack = (G.drawStack||0) + add;
     steps=1;
     showEffect('draw2', 'Pilha +' + G.drawStack);
@@ -1364,7 +1451,7 @@ function advanceTurn(card){
   // Empilhar +4
   if(card.type==='wild4'){
     let add4 = 4;
-    if(hasPower('wildFury') && (gameMode==='bots' ? G.turn===0 : G.turn===mySeat)) add4 = 5;
+    if(seatHasPower(G.turn, 'wildFury')) add4 = 5;
     G.drawStack = (G.drawStack||0) + add4;
     steps=1;
     showEffect('draw4', 'Pilha +' + G.drawStack);
@@ -1383,7 +1470,7 @@ function checkUnoAfterPlay(playerIdx){
   if(p.hand.length===1){
     if(p.isBot) showBotBubble(playerIdx-1,'UNO!');
     else if(playerIdx===mySeat||gameMode==='bots'){
-      if(hasPower('autoUno') && (playerIdx===mySeat || (gameMode==='bots'&&playerIdx===0))){
+      if(seatHasPower(playerIdx,'autoUno') && (playerIdx===localSeat() || (gameMode==='bots'&&playerIdx===0))){
         G.unoCalled=true;
         document.getElementById('uno-btn').classList.remove('show');
         showToast('📣 UNO automático!');
@@ -1391,10 +1478,10 @@ function checkUnoAfterPlay(playerIdx){
         return;
       }
       G.unoCalled=false;document.getElementById('uno-btn').classList.add('show');
-      const unoMs = hasPower('longUno') ? 5000 : 2500;
+      const unoMs = seatHasPower(playerIdx,'longUno') ? 5000 : 2500;
       G.unoTimer=setTimeout(()=>{
         if(!G.unoCalled&&G.players[playerIdx].hand.length===1&&!G.gameOver){
-          const pen = hasPower('halfPenalty') ? 1 : 2;
+          const pen = seatHasPower(playerIdx,'halfPenalty') ? 1 : 2;
           drawCards(playerIdx,pen);showToast('Esqueceu o UNO! +'+pen+' carta'+(pen>1?'s':'')+' 😝');render();
           if(gameMode==='online'&&isHost)syncFullState();
         }
@@ -1527,6 +1614,33 @@ function chooseWildColor(color){
     else{playCard(seat,G.drawDecisionIdx,color);G.drawDecisionIdx=null;hideDrawDecision()}
   }
 }
+
+function tryAbsorbStack(seat){
+  if(!G || !(G.drawStack>0)) return false;
+  let uses = shieldUsesBySeat[seat];
+  if(uses==null){
+    // inicializa sob demanda
+    if(seatHasPower(seat,'doubleShield')) uses = 2;
+    else if(seatHasPower(seat,'shield2') || seatHasPower(seat,'megaShield')) uses = 1;
+    else uses = 0;
+    shieldUsesBySeat[seat] = uses;
+  }
+  if(uses<=0) return false;
+  if(seatHasPower(seat,'shield2') && G.drawStack===2){
+    shieldUsesBySeat[seat] = uses-1;
+    G.drawStack = 0;
+    showToast('🛡️ Escudo absorveu o +2!'+(shieldUsesBySeat[seat]>0?' ('+shieldUsesBySeat[seat]+' restante)':''));
+    return true;
+  }
+  if(seatHasPower(seat,'megaShield') && G.drawStack>=4){
+    shieldUsesBySeat[seat] = uses-1;
+    G.drawStack = 0;
+    showToast('🏰 Escudo absorveu o +4!'+(shieldUsesBySeat[seat]>0?' ('+shieldUsesBySeat[seat]+' restante)':''));
+    return true;
+  }
+  return false;
+}
+
 function onDrawPileClick(){
   if(!G||G.gameOver)return;
   if(gameMode==='bots'&&G.turn!==0)return;
@@ -1534,21 +1648,14 @@ function onDrawPileClick(){
   const seat=gameMode==='bots'?0:mySeat;
   // Se há pilha de +2/+4, comprar = receber a pilha inteira
   if(G.drawStack > 0){
-    if(seat===mySeat && gameMode==='bots'){
-      if(hasPower('shield2')&&shieldUsesLeft>0&&G.drawStack===2){
-        shieldUsesLeft--; shieldUsed=true; G.drawStack=0; showToast('🛡️ Escudo absorveu o +2!'+(shieldUsesLeft>0?' ('+shieldUsesLeft+' restante)':''));
-        advanceTurn({type:'__draw_pass__'}); render();
-        if(gameMode==='bots') maybeRunBot();
-        return;
-      }
-      if(hasPower('megaShield')&&shieldUsesLeft>0&&G.drawStack>=4){
-        shieldUsesLeft--; shieldUsed=true; G.drawStack=0; showToast('🏰 Escudo absorveu o +4!'+(shieldUsesLeft>0?' ('+shieldUsesLeft+' restante)':''));
-        advanceTurn({type:'__draw_pass__'}); render();
-        if(gameMode==='bots') maybeRunBot();
-        return;
-      }
-    }
     if(gameMode==='online'&&!isHost){sendMsg({type:'draw'});return}
+    // escudos (bots ou host processando qualquer assento)
+    if(tryAbsorbStack(seat)){
+      advanceTurn({type:'__draw_pass__'}); render();
+      if(gameMode==='bots') maybeRunBot();
+      if(gameMode==='online'&&isHost) syncFullState();
+      return;
+    }
     forceDrawStack(seat);
     advanceTurn({type:'__draw_pass__'});
     render();
@@ -1561,8 +1668,15 @@ function onDrawPileClick(){
   doDraw(seat);
 }
 function doDraw(seat){
-  // Se há pilha pendente, recebe a pilha inteira
+  // Se há pilha pendente, recebe a pilha inteira (ou escudo)
   if(G.drawStack > 0){
+    if(tryAbsorbStack(seat)){
+      advanceTurn({type:'__draw_pass__'});
+      render();
+      if(gameMode==='bots') maybeRunBot();
+      if(gameMode==='online'&&isHost) syncFullState();
+      return;
+    }
     forceDrawStack(seat);
     advanceTurn({type:'__draw_pass__'});
     render();
@@ -1571,8 +1685,8 @@ function doDraw(seat){
     return;
   }
   drawCards(seat,1);
-  if(seat===mySeat&&hasPower('luckyDraw')&&!isValidPlay(G.players[seat].hand[G.players[seat].hand.length-1])){
-    const chance = hasPower('luckyPlus') ? 0.45 : 0.30;
+  if(seatHasPower(seat,'luckyDraw')&&!isValidPlay(G.players[seat].hand[G.players[seat].hand.length-1])){
+    const chance = seatHasPower(seat,'luckyPlus') ? 0.45 : 0.30;
     if(Math.random()<chance){
       const hand=G.players[seat].hand;const drawn=hand.pop();G.deck.push(drawn);shuffle(G.deck);
       let found=-1;for(let i=0;i<G.deck.length;i++) if(isValidPlay(G.deck[i])){found=i;break}
@@ -1580,9 +1694,10 @@ function doDraw(seat){
       else hand.push(G.deck.pop());
     }
   }
-  // recycleDraw: uma vez por partida
-  if(seat===mySeat&&hasPower('recycleDraw')&&!recycleUsed&&!isValidPlay(G.players[seat].hand[G.players[seat].hand.length-1])){
-    recycleUsed=true;
+  // recycleDraw: uma vez por partida por assento
+  if(!window._recycleBySeat) window._recycleBySeat={};
+  if(seatHasPower(seat,'recycleDraw')&&!window._recycleBySeat[seat]&&!isValidPlay(G.players[seat].hand[G.players[seat].hand.length-1])){
+    window._recycleBySeat[seat]=true;
     const hand=G.players[seat].hand;const bad=hand.pop();G.deck.push(bad);shuffle(G.deck);
     drawCards(seat,1);
     showToast('♻️ Reciclou a compra!');
@@ -1665,7 +1780,7 @@ function openHostModal(maxP){
   document.getElementById('host-modal').classList.add('show');
   document.getElementById('host-status').innerHTML='<span class="status-dot off"></span> Conectando...';
   roomCode=genCode();document.getElementById('room-code').textContent=roomCode;
-  isHost=true;mySeat=0;gameMode='online';
+  isHost=true;mySeat=0;gameMode='online'; seatPowers={0:(ACC&&ACC.powers)?ACC.powers.slice():[]};
   const hostTitle = document.querySelector('#host-modal h3');
   if(hostTitle) hostTitle.textContent = '🏠 Sala para '+onlineMaxPlayers+' jogadores';
   const hostP = document.querySelector('#host-modal p');
@@ -1737,7 +1852,7 @@ function joinRoom(){
       conn=peer.connect('mochi-'+code);
       conn.on('open',()=>{
         document.getElementById('join-status').textContent='Conectado! Aguardando início...';
-        conn.send({type:'hello', name:(ACC?ACC.name:'Jogador')});
+        conn.send({type:'hello', name:(ACC?ACC.name:'Jogador'), powers:(ACC&&ACC.powers)?ACC.powers.slice():[]});
       });
       conn.on('data', msg => onNetMsg(msg, conn));
       conn.on('close',()=>{showToast('Desconectado da sala');quitToLobby()});
@@ -1767,6 +1882,10 @@ function onNetMsg(msg, fromConn){
     if(msg.type==='welcome'){
       mySeat = msg.seat;
       onlineMaxPlayers = msg.maxPlayers||2;
+      // envia poderes e nome para o host aplicar na partida
+      try {
+        sendMsg({type:'powers', powers:(ACC&&ACC.powers)?ACC.powers.slice():[], name:(ACC?ACC.name:'Jogador')});
+      } catch(e){}
       showToast('Você é o jogador '+(mySeat+1)+' — aguarde iniciar');
       return;
     }
@@ -1799,7 +1918,20 @@ function onNetMsg(msg, fromConn){
   }
   // Host receives from guests
   if(msg.type==='hello'){
-    // already handled seat on connection; just ack
+    const entry0 = conns.find(x=>x.conn===fromConn);
+    if(entry0){
+      if(msg.name) entry0.name = msg.name;
+      if(Array.isArray(msg.powers)) seatPowers[entry0.seat] = msg.powers.slice();
+    }
+    return;
+  }
+  if(msg.type==='powers'){
+    const entryP = conns.find(x=>x.conn===fromConn);
+    if(entryP){
+      seatPowers[entryP.seat] = Array.isArray(msg.powers) ? msg.powers.slice() : [];
+      if(msg.name) entryP.name = msg.name;
+      showToast((msg.name||'Jogador')+' trouxe '+(seatPowers[entryP.seat].length)+' poder(es)');
+    }
     return;
   }
   // Find seat of sender
@@ -1817,7 +1949,25 @@ function onNetMsg(msg, fromConn){
     if(G.turn!==seat)return;
     doDraw(seat);
   }
-  if(msg.type==='playDrawn'){
+  
+  if(msg.type==='freePass'){
+    if(G.turn!==seat)return;
+    if(G.drawStack>0)return;
+    if(G.players[seat].hand.some(isValidPlay))return;
+    showToast('🎫 Passe livre!');
+    advanceTurn({type:'__draw_pass__'});render();syncFullState();
+    return;
+  }
+  if(msg.type==='stackCut'){
+    if(G.turn!==seat)return;
+    if(G.drawStack<=0)return;
+    const before=G.drawStack;
+    G.drawStack = Math.ceil(G.drawStack/2);
+    showToast('✂️ Pilha '+before+' → '+G.drawStack);
+    render();syncFullState();
+    return;
+  }
+if(msg.type==='playDrawn'){
     if(G.turn!==seat)return;
     const idx=G.players[seat].hand.length-1;
     if(msg.play){
@@ -1883,6 +2033,7 @@ function useFreePass(){
   if(G.turn!==seat)return;
   if(G.drawStack>0){showToast('Não pode passar com pilha ativa');return}
   if(G.players[seat].hand.some(isValidPlay)){showToast('Você tem carta jogável!');return}
+  if(gameMode==='online'&&!isHost){ sendMsg({type:'freePass'}); freePassUsed=true; return; }
   freePassUsed=true;
   showToast('🎫 Passe livre!');
   advanceTurn({type:'__draw_pass__'});
@@ -1895,11 +2046,13 @@ function useStackCut(){
   if(G.drawStack<=0){showToast('Não há pilha para cortar');return}
   const seat=gameMode==='bots'?0:mySeat;
   if(G.turn!==seat)return;
+  if(gameMode==='online'&&!isHost){ sendMsg({type:'stackCut'}); stackCutUsed=true; return; }
   stackCutUsed=true;
   const before=G.drawStack;
   G.drawStack = Math.ceil(G.drawStack/2);
   showToast('✂️ Pilha '+before+' → '+G.drawStack);
   render();
+  if(gameMode==='online'&&isHost) syncFullState();
 }
 function usePeekTop(){
   if(!G||G.gameOver||peekUsed||!hasPower('peekTop'))return;
