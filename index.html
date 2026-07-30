@@ -388,6 +388,10 @@ function nickToEmail(nick){
   return nick.toLowerCase().replace(/[^a-z0-9]/g,'') + '@players.mochiuno.game';
 }
 
+/* Declarado logo no início do script para evitar qualquer erro de TDZ */
+let ACC = null;
+let authMode = 'login';
+
 const SHOP=[
   {id:'start4',name:'Começar com +4',desc:'Toda partida você inicia com um +4 na mão',price:80,icon:'🃏'},
   {id:'startWild',name:'Começar com coringa',desc:'Inicia com uma carta de troca de cor',price:50,icon:'🎨'},
@@ -432,8 +436,6 @@ const MISSIONS=[
 ];
 
 /* ===== ACCOUNT (Firebase) ===== */
-let ACC = null;
-let authMode = 'login';
 
 function defaultAccount(name){
   return {name, coins:30, powers:[], wins:0, losses:0, games:0,
