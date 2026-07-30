@@ -534,7 +534,7 @@ const MISSIONS=[
   {id:'coins200',name:'Rico em laços',desc:'Acumule 200 moedas',target:200,stat:'coins',reward:50,icon:'🪙'},
 ];
 function defaultAccount(name){
-  return {name:name||'Jogador',coins:50,powers:[],wins:0,losses:0,games:0,unoCalls:0,wildsPlayed:0,plus4Played:0,missionsClaimed:[],uid:null,theme:'default',rankClaimed:null,lastWin:false,shopDiscountReady:false};
+  return {name:name||'Jogador',coins:50,powers:[],wins:0,losses:0,games:0,unoCalls:0,wildsPlayed:0,plus4Played:0,missionsClaimed:[],uid:null,theme:'default',rankPrizesClaimed:[],lastWin:false,shopDiscountReady:false};
 }
 let ACC = null;
 let authMode = 'login';
@@ -552,7 +552,14 @@ function applyAccountData(target, src){
   target.missionsClaimed = Array.isArray(src.missionsClaimed) ? src.missionsClaimed.slice() : (target.missionsClaimed||[]);
   if(src.uid) target.uid = src.uid;
   target.theme = src.theme || target.theme || 'default';
-  target.rankClaimed = (src.rankClaimed!=null) ? src.rankClaimed : (target.rankClaimed||null);
+  // migra rankClaimed antigo -> rankPrizesClaimed
+  let rpc = Array.isArray(src.rankPrizesClaimed) ? src.rankPrizesClaimed.slice() : (target.rankPrizesClaimed||[]);
+  if(src.rankClaimed!=null && src.rankClaimed!==''){
+    // formato antigo: número ou "pos:wins"
+    const n = parseInt(String(src.rankClaimed).split(':')[0],10);
+    if(n>=1 && n<=3 && rpc.indexOf(n)<0) rpc.push(n);
+  }
+  target.rankPrizesClaimed = rpc;
   target.lastWin = !!(src.lastWin);
   target.shopDiscountReady = !!(src.shopDiscountReady);
   return target;
@@ -580,8 +587,16 @@ function mergeAccounts(a, b){
   (b.missionsClaimed||[]).forEach(x=>mset[x]=1);
   out.missionsClaimed = Object.keys(mset);
   out.theme = a.theme || b.theme || 'default';
-  // rankClaimed: prefer non-null
-  out.rankClaimed = (a.rankClaimed!=null) ? a.rankClaimed : ((b.rankClaimed!=null) ? b.rankClaimed : null);
+  const rpcSet = {};
+  (a.rankPrizesClaimed||[]).forEach(x=>rpcSet[x]=1);
+  (b.rankPrizesClaimed||[]).forEach(x=>rpcSet[x]=1);
+  // legado
+  [a.rankClaimed, b.rankClaimed].forEach(v=>{
+    if(v==null||v==='') return;
+    const n=parseInt(String(v).split(':')[0],10);
+    if(n>=1&&n<=3) rpcSet[n]=1;
+  });
+  out.rankPrizesClaimed = Object.keys(rpcSet).map(Number).filter(n=>n>=1&&n<=3);
   out.lastWin = !!(a.lastWin || b.lastWin);
   out.shopDiscountReady = !!(a.shopDiscountReady || b.shopDiscountReady);
   return out;
@@ -622,7 +637,7 @@ async function saveAccounts(){
         plus4Played: ACC.plus4Played||0,
         missionsClaimed: ACC.missionsClaimed||[],
         theme: ACC.theme||'default',
-        rankClaimed: ACC.rankClaimed||null,
+        rankPrizesClaimed: ACC.rankPrizesClaimed||[],
         lastWin: !!ACC.lastWin,
         shopDiscountReady: !!ACC.shopDiscountReady,
         updatedAt: Date.now()
@@ -894,6 +909,7 @@ function renderPowerTags(){
 function applyTheme(themeId){
   const t = THEMES[themeId] || THEMES.default;
   const r = document.documentElement;
+  // Só UI (fundo, painéis, botões) — NÃO altera cores das cartas UNO
   r.style.setProperty('--bg-a', t.bgA);
   r.style.setProperty('--bg-b', t.bgB);
   r.style.setProperty('--panel', t.panel);
@@ -901,11 +917,15 @@ function applyTheme(themeId){
   r.style.setProperty('--ink-soft', t.inkSoft);
   r.style.setProperty('--accent', t.accent);
   r.style.setProperty('--accent-dark', t.accentDark);
-  r.style.setProperty('--pink', t.pink);
-  r.style.setProperty('--amarelo', t.amarelo);
-  r.style.setProperty('--verde', t.verde);
-  r.style.setProperty('--azul', t.azul);
-  // body background follows CSS vars via stylesheet
+  // Cores das cartas sempre fixas (rosa/amarelo/verde/azul originais)
+  r.style.setProperty('--pink', '#ff6fa5');
+  r.style.setProperty('--pink-dark', '#e14f86');
+  r.style.setProperty('--amarelo', '#ffcc4d');
+  r.style.setProperty('--amarelo-dark', '#e0a913');
+  r.style.setProperty('--verde', '#7bd99a');
+  r.style.setProperty('--verde-dark', '#43b06c');
+  r.style.setProperty('--azul', '#6fc3ff');
+  r.style.setProperty('--azul-dark', '#2f9ee0');
 }
 function canChangeTheme(){
   return myRankPos!=null && myRankPos>=1 && myRankPos<=3;
@@ -1008,12 +1028,9 @@ function renderRanking(){
     claim.innerHTML = '';
     if(ACC && myRankPos && myRankPos<=3){
       const prize = RANK_PRIZES[myRankPos];
-      const already = ACC.rankClaimed === myRankPos; // claim once per position held
-      // allow re-claim only if rank improved (lower number) vs last claim key stored as "pos:wins"
-      const claimKey = myRankPos + ':' + (ACC.wins||0);
-      const claimedKey = ACC.rankClaimed;
-      if(claimedKey === claimKey){
-        claim.innerHTML = '<div style="font-size:12px;color:#2a8a4a">✓ Prêmio do ranking já resgatado nesta posição</div>';
+      const claimed = (ACC.rankPrizesClaimed||[]).indexOf(myRankPos)>=0;
+      if(claimed){
+        claim.innerHTML = '<div style="font-size:12px;color:#2a8a4a">✓ Prêmio do Top '+myRankPos+' já resgatado</div>';
       } else {
         claim.innerHTML = '<button class="btn small" onclick="claimRankPrize()">Resgatar prêmio Top '+myRankPos+': 🪙 '+prize+'</button>';
       }
@@ -1051,10 +1068,13 @@ function claimRankPrize(){
   if(!ACC || !myRankPos || myRankPos>3) return;
   const prize = RANK_PRIZES[myRankPos];
   if(!prize) return;
-  const claimKey = myRankPos + ':' + (ACC.wins||0);
-  if(ACC.rankClaimed === claimKey){ showToast('Já resgatado'); return; }
+  ACC.rankPrizesClaimed = ACC.rankPrizesClaimed || [];
+  if(ACC.rankPrizesClaimed.indexOf(myRankPos)>=0){
+    showToast('Prêmio do Top '+myRankPos+' já foi resgatado');
+    return;
+  }
   ACC.coins = (ACC.coins||0) + prize;
-  ACC.rankClaimed = claimKey;
+  ACC.rankPrizesClaimed.push(myRankPos);
   saveAccounts();
   updateCoinUI();
   showToast('🏅 Top '+myRankPos+'! +'+prize+' moedas 🪙');
