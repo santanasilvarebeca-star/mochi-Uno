@@ -238,9 +238,12 @@ input.room-input{font-size:20px;letter-spacing:5px;text-transform:uppercase}
       </div></div>
       <button class="btn ghost" id="btn-online" onclick="toggleCascade('online')">🌐 Jogar online ▾</button>
       <div class="cascade" id="cascade-online"><div class="cascade-inner">
-        <button class="btn cascade-item ghost" onclick="openHostModal(2)">🏠 Sala para 2 jogadores</button>
-        <button class="btn cascade-item ghost" onclick="openHostModal(3)">🏠 Sala para 3 jogadores</button>
-        <button class="btn cascade-item ghost" onclick="openHostModal(4)">🏠 Sala para 4 jogadores</button>
+        <button class="btn cascade-item ghost" onclick="findPublicRoom(2)">🌍 Sala pública (2 jogadores)</button>
+        <button class="btn cascade-item ghost" onclick="findPublicRoom(3)">🌍 Sala pública (3 jogadores)</button>
+        <button class="btn cascade-item ghost" onclick="findPublicRoom(4)">🌍 Sala pública (4 jogadores)</button>
+        <button class="btn cascade-item ghost" onclick="openHostModal(2)">🏠 Sala privada (2)</button>
+        <button class="btn cascade-item ghost" onclick="openHostModal(3)">🏠 Sala privada (3)</button>
+        <button class="btn cascade-item ghost" onclick="openHostModal(4)">🏠 Sala privada (4)</button>
         <button class="btn cascade-item ghost" onclick="openJoinModal()">🔗 Entrar com código</button>
       </div></div>
       <button class="btn ghost" onclick="openProfile()">👤 Meu perfil</button>
@@ -379,6 +382,18 @@ input.room-input{font-size:20px;letter-spacing:5px;text-transform:uppercase}
   </div>
 </div>
 
+
+
+<div class="modal-bg" id="public-modal">
+  <div class="modal">
+    <h3 id="public-title">🌍 Sala pública</h3>
+    <p id="public-sub">Procurando jogadores...</p>
+    <div class="code-box" id="public-code" style="display:none">----</div>
+    <p id="public-status"><span class="status-dot off"></span> Conectando...</p>
+    <p style="font-size:12px;color:var(--ink-soft);margin-top:8px">Não precisa de código. Outros jogadores entram automaticamente.</p>
+    <button class="btn ghost" onclick="cancelOnline()" style="width:auto;margin-top:10px">Cancelar</button>
+  </div>
+</div>
 
 <script src="https://www.gstatic.com/firebasejs/10.14.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.0/firebase-auth-compat.js"></script>
@@ -1810,6 +1825,179 @@ function updateHostStatus(){
   }
 }
 
+
+let isPublicRoom = false;
+let publicRoomUnsub = null;
+let publicRoomId = null;
+
+async function publishPublicRoom(code, maxP, seats){
+  if(!fbReady || !db || !auth || !auth.currentUser) return;
+  publicRoomId = code;
+  try {
+    await db.collection('publicRooms').doc(code).set({
+      code: code,
+      maxPlayers: maxP,
+      seats: seats||1,
+      status: 'waiting',
+      hostName: (ACC&&ACC.name)||'Host',
+      hostUid: auth.currentUser.uid,
+      createdAt: Date.now(),
+      updatedAt: Date.now()
+    }, {merge:true});
+  } catch(e){ console.warn('publish room', e); }
+}
+async function updatePublicRoomSeats(seats){
+  if(!isPublicRoom || !publicRoomId || !db) return;
+  try {
+    await db.collection('publicRooms').doc(publicRoomId).set({
+      seats: seats,
+      updatedAt: Date.now()
+    }, {merge:true});
+  } catch(e){}
+}
+async function closePublicRoom(){
+  if(publicRoomUnsub){ try{ publicRoomUnsub(); }catch(e){} publicRoomUnsub=null; }
+  if(publicRoomId && db){
+    try { await db.collection('publicRooms').doc(publicRoomId).delete(); } catch(e){
+      try { await db.collection('publicRooms').doc(publicRoomId).set({status:'closed', updatedAt:Date.now()}, {merge:true}); } catch(e2){}
+    }
+  }
+  publicRoomId = null;
+  isPublicRoom = false;
+}
+
+async function findPublicRoom(maxP){
+  maxP = maxP || 2;
+  if(!fbReady || !db){
+    showToast('Precisa de internet e Firebase');
+    return;
+  }
+  if(!auth || !auth.currentUser){
+    showToast('Entre na conta para sala pública');
+    return;
+  }
+  document.getElementById('public-modal').classList.add('show');
+  document.getElementById('public-title').textContent = '🌍 Sala pública ('+maxP+' jogadores)';
+  document.getElementById('public-sub').textContent = 'Procurando sala aberta...';
+  document.getElementById('public-status').innerHTML = '<span class="status-dot off"></span> Buscando...';
+  document.getElementById('public-code').style.display = 'none';
+  isPublicRoom = true;
+  onlineMaxPlayers = maxP;
+
+  try {
+    // busca salas waiting com vaga
+    let candidate = null;
+    try {
+      const snap = await Promise.race([
+        db.collection('publicRooms')
+          .where('status','==','waiting')
+          .where('maxPlayers','==', maxP)
+          .limit(20)
+          .get(),
+        new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout')),8000))
+      ]);
+      const now = Date.now();
+      snap.forEach(doc=>{
+        const d = doc.data()||{};
+        // ignora salas velhas (>10 min) ou cheias
+        if(d.status!=='waiting') return;
+        if((d.seats||1) >= (d.maxPlayers||maxP)) return;
+        if(d.createdAt && now - d.createdAt > 10*60*1000) return;
+        if(d.hostUid === auth.currentUser.uid) return; // não entra na própria
+        if(!candidate) candidate = {id:doc.id, data:d};
+      });
+    } catch(eQ){
+      console.warn('query public', eQ);
+      // fallback: get all and filter client
+      try {
+        const snap2 = await db.collection('publicRooms').limit(30).get();
+        const now = Date.now();
+        snap2.forEach(doc=>{
+          const d = doc.data()||{};
+          if(d.status!=='waiting') return;
+          if((d.maxPlayers||2)!==maxP) return;
+          if((d.seats||1) >= maxP) return;
+          if(d.createdAt && now - d.createdAt > 10*60*1000) return;
+          if(d.hostUid === auth.currentUser.uid) return;
+          if(!candidate) candidate = {id:doc.id, data:d};
+        });
+      } catch(e2){ console.warn(e2); }
+    }
+
+    if(candidate){
+      // entrar como convidado
+      document.getElementById('public-sub').textContent = 'Sala encontrada! Entrando...';
+      document.getElementById('public-status').innerHTML = '<span class="status-dot on"></span> Conectando à sala...';
+      roomCode = candidate.data.code || candidate.id;
+      publicRoomId = candidate.id;
+      isHost = false;
+      gameMode = 'online';
+      conns = [];
+      try {
+        peer = new Peer({debug:1});
+        peer.on('open', ()=>{
+          conn = peer.connect('mochi-'+roomCode);
+          conn.on('open', ()=>{
+            document.getElementById('public-status').innerHTML = '<span class="status-dot on"></span> Conectado! Aguardando início...';
+            conn.send({type:'hello', name:(ACC?ACC.name:'Jogador'), powers:(ACC&&ACC.powers)?ACC.powers.slice():[]});
+          });
+          conn.on('data', msg => onNetMsg(msg, conn));
+          conn.on('close', ()=>{ showToast('Desconectado'); cancelOnline(); });
+        });
+        peer.on('error', err=>{
+          document.getElementById('public-status').textContent = 'Erro: '+err.type+' — criando nova sala...';
+          // se falhou, cria própria
+          setTimeout(()=>createPublicAsHost(maxP), 800);
+        });
+      } catch(e){
+        showToast('Erro de conexão');
+        createPublicAsHost(maxP);
+      }
+    } else {
+      // ninguém esperando → vira host
+      createPublicAsHost(maxP);
+    }
+  } catch(e){
+    console.warn(e);
+    showToast('Erro ao buscar salas');
+    createPublicAsHost(maxP);
+  }
+}
+
+function createPublicAsHost(maxP){
+  onlineMaxPlayers = maxP || 2;
+  isHost = true;
+  mySeat = 0;
+  gameMode = 'online';
+  isPublicRoom = true;
+  conns = [];
+  seatPowers = {0: (ACC&&ACC.powers)?ACC.powers.slice():[]};
+  roomCode = genCode();
+  publicRoomId = roomCode;
+  document.getElementById('public-modal').classList.add('show');
+  document.getElementById('public-title').textContent = '🌍 Sala pública ('+onlineMaxPlayers+' jogadores)';
+  document.getElementById('public-sub').textContent = 'Aguardando outros jogadores entrarem...';
+  document.getElementById('public-code').style.display = 'block';
+  document.getElementById('public-code').textContent = roomCode;
+  document.getElementById('public-status').innerHTML = '<span class="status-dot off"></span> Abrindo sala...';
+
+  try {
+    peer = new Peer('mochi-'+roomCode, {debug:1});
+    peer.on('open', async ()=>{
+      await publishPublicRoom(roomCode, onlineMaxPlayers, 1);
+      document.getElementById('public-status').innerHTML = '<span class="status-dot on"></span> Aguardando... 1/'+onlineMaxPlayers;
+      showToast('Sala pública aberta! Esperando jogadores...');
+    });
+    peer.on('connection', c => setupHostConn(c));
+    peer.on('error', err=>{
+      document.getElementById('public-status').textContent = 'Erro: '+err.type;
+    });
+  } catch(e){
+    document.getElementById('public-status').textContent = 'Precisa de internet';
+  }
+}
+
+
 function openHostModal(maxP){
   onlineMaxPlayers = maxP || 2;
   conns = [];
@@ -1847,6 +2035,12 @@ function setupHostConn(c){
     conns.push({conn:c, seat, open:true});
     c.send({type:'welcome', seat, maxPlayers:onlineMaxPlayers, hostName:(ACC?ACC.name:'Host')});
     updateHostStatus();
+    if(isPublicRoom){
+      const joined = 1 + conns.filter(x=>x.open).length;
+      updatePublicRoomSeats(joined);
+      const ps=document.getElementById('public-status');
+      if(ps) ps.innerHTML = '<span class="status-dot on"></span> Aguardando... '+joined+'/'+onlineMaxPlayers;
+    }
     showToast('Jogador entrou no assento '+(seat+1));
     // if full, start
     if(conns.filter(x=>x.open).length >= onlineMaxPlayers-1){
@@ -1865,6 +2059,10 @@ function setupHostConn(c){
 function startOnlineGame(){
   document.getElementById('host-modal').classList.remove('show');
   document.getElementById('join-modal').classList.remove('show');
+  const pm=document.getElementById('public-modal'); if(pm) pm.classList.remove('show');
+  if(isPublicRoom && publicRoomId && db){
+    try { db.collection('publicRooms').doc(publicRoomId).set({status:'playing', seats:onlineMaxPlayers, updatedAt:Date.now()}, {merge:true}); } catch(e){}
+  }
   newGame();
   showScreen('game-screen');
   updateCoinUI();
@@ -1933,6 +2131,7 @@ function onNetMsg(msg, fromConn){
       if(msg.maxPlayers) onlineMaxPlayers = msg.maxPlayers;
       document.getElementById('host-modal').classList.remove('show');
       document.getElementById('join-modal').classList.remove('show');
+      const pm2=document.getElementById('public-modal'); if(pm2) pm2.classList.remove('show');
       showScreen('game-screen');
       updateCoinUI();
       renderPowerTags();
@@ -2019,10 +2218,12 @@ if(msg.type==='playDrawn'){
 function cancelOnline(){
   document.getElementById('host-modal').classList.remove('show');
   document.getElementById('join-modal').classList.remove('show');
+  const pm=document.getElementById('public-modal'); if(pm) pm.classList.remove('show');
+  try{ closePublicRoom(); }catch(e){}
   try{ conns.forEach(x=>{try{x.conn.close()}catch(e){}}); }catch(e){}
   try{if(conn)conn.close()}catch(e){}
   try{if(peer)peer.destroy()}catch(e){}
-  peer=null;conn=null;conns=[];gameMode='bots';onlineMaxPlayers=2;
+  peer=null;conn=null;conns=[];gameMode='bots';onlineMaxPlayers=2;isPublicRoom=false;publicRoomId=null;
 }
 
 function showToast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');clearTimeout(t._timer);t._timer=setTimeout(()=>t.classList.remove('show'),1800)}
