@@ -1158,9 +1158,29 @@ function newGame(){
     }
     if(hasPower('extraCard')&&deck.length) players[0].hand.push(deck.pop());
     if(hasPower('smallHand') && players[0].hand.length>6){
-      // devolve cartas extras ao deck até ficar com 6 (sem remover poderes start)
+      // Devolve cartas extras até 6, protegendo cartas de poderes iniciais
+      // (+4, coringa, +2, bloqueio, inversão). Prefere remover números comuns.
+      function isProtectedStartCard(c){
+        if(!c) return false;
+        return c.type==='wild' || c.type==='wild4' || c.type==='draw2' || c.type==='skip' || c.type==='reverse';
+      }
       while(players[0].hand.length>6){
-        const c = players[0].hand.pop();
+        let removeIdx = -1;
+        // 1) número comum (não 0 especial se possível, mas qualquer number serve)
+        for(let i=players[0].hand.length-1;i>=0;i--){
+          const c=players[0].hand[i];
+          if(c && c.type==='number' && !isProtectedStartCard(c)){ removeIdx=i; break; }
+        }
+        // 2) se só restam especiais, remove a menos valiosa (nunca wild4 se der)
+        if(removeIdx<0){
+          for(let i=players[0].hand.length-1;i>=0;i--){
+            const c=players[0].hand[i];
+            if(c && c.type!=='wild4' && c.type!=='wild'){ removeIdx=i; break; }
+          }
+        }
+        // 3) último recurso: qualquer carta
+        if(removeIdx<0) removeIdx = players[0].hand.length-1;
+        const c = players[0].hand.splice(removeIdx,1)[0];
         if(c) deck.push(c);
       }
       shuffle(deck);
