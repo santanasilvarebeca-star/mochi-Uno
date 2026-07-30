@@ -276,7 +276,7 @@ input.room-input{font-size:20px;letter-spacing:5px;text-transform:uppercase}
 <div id="ranking-screen" class="screen">
   <div class="card-panel" style="text-align:left">
     <h2 style="text-align:center">🏅 Ranking</h2>
-    <p style="text-align:center;font-size:13px;color:var(--ink-soft);margin:0 0 10px">Top 3 ganham prêmios em moedas e podem mudar a cor do jogo!</p>
+    <p style="text-align:center;font-size:13px;color:var(--ink-soft);margin:0 0 10px">Top 3 (mais vitórias) ganham prêmios e podem mudar a cor do jogo!</p>
     <div id="my-rank-box" style="background:#fff;border-radius:14px;padding:12px;margin-bottom:12px;text-align:center;box-shadow:0 2px 0 rgba(0,0,0,.08)">
       <div style="font-size:12px;color:var(--ink-soft)">Sua posição</div>
       <div style="font-family:'Baloo 2';font-size:22px;color:var(--accent-dark)" id="my-rank-label">—</div>
@@ -957,23 +957,15 @@ async function fetchRanking(){
     });
     return list;
   }
-  function injectMe(list){
-    if(!ACC) return list;
-    const uid = ACC.uid || 'local';
-    const idx = list.findIndex(x=>x.uid===uid);
-    const me = {uid:uid, name:ACC.name||'Você', wins:ACC.wins||0, games:ACC.games||0, coins:ACC.coins||0};
-    if(idx<0) list.push(me);
-    else {
-      // usa o maior progresso (nuvem vs local)
-      list[idx].wins = Math.max(list[idx].wins||0, me.wins||0);
-      list[idx].games = Math.max(list[idx].games||0, me.games||0);
-      list[idx].coins = Math.max(list[idx].coins||0, me.coins||0);
-      if(ACC.name) list[idx].name = ACC.name;
-    }
-    return list;
-  }
   function finalize(list){
     sortList(list);
+    const seen = {};
+    list = list.filter(p=>{
+      const id = p.uid||p.name;
+      if(seen[id]) return false;
+      seen[id]=1;
+      return true;
+    });
     if(ACC){
       const uid = ACC.uid || 'local';
       const i = list.findIndex(x=>x.uid===uid);
@@ -985,14 +977,17 @@ async function fetchRanking(){
   }
 
   if(!fbReady || !db){
-    return finalize(injectMe([]));
+    const list = [];
+    if(ACC){
+      list.push({uid:ACC.uid||'local', name:ACC.name||'Você', wins:ACC.wins||0, games:ACC.games||0, coins:ACC.coins||0});
+    }
+    return finalize(list);
   }
 
   let list = [];
-  // 1) tenta orderBy wins
   try {
     const snap = await Promise.race([
-      db.collection('users').orderBy('wins','desc').limit(50).get(),
+      db.collection('users').orderBy('wins','desc').limit(80).get(),
       new Promise((_,rej)=>setTimeout(()=>rej(new Error('rank-timeout')),10000))
     ]);
     snap.forEach(doc=>{
@@ -1007,10 +1002,9 @@ async function fetchRanking(){
     });
   } catch(e1){
     console.warn('ranking orderBy falhou, tentando get simples', e1);
-    // 2) fallback: lê todos (ou limit) sem orderBy e ordena no cliente
     try {
       const snap2 = await Promise.race([
-        db.collection('users').limit(50).get(),
+        db.collection('users').limit(80).get(),
         new Promise((_,rej)=>setTimeout(()=>rej(new Error('rank-timeout2')),10000))
       ]);
       snap2.forEach(doc=>{
@@ -1029,7 +1023,20 @@ async function fetchRanking(){
     }
   }
 
-  return finalize(injectMe(list));
+  if(ACC){
+    const uid = ACC.uid || 'local';
+    const idx = list.findIndex(x=>x.uid===uid);
+    const me = {uid:uid, name:ACC.name||'Você', wins:ACC.wins||0, games:ACC.games||0, coins:ACC.coins||0};
+    if(idx<0) list.push(me);
+    else {
+      list[idx].wins = Math.max(list[idx].wins||0, me.wins||0);
+      list[idx].games = Math.max(list[idx].games||0, me.games||0);
+      list[idx].coins = Math.max(list[idx].coins||0, me.coins||0);
+      if(ACC.name) list[idx].name = ACC.name;
+    }
+  }
+
+  return finalize(list);
 }
 
 function openRanking(){
@@ -1041,6 +1048,57 @@ function renderRanking(){
   const listEl = document.getElementById('ranking-list');
   if(!listEl) return;
   listEl.innerHTML = '';
+  const myWins = ACC ? (ACC.wins||0) : 0;
+
+  const lab = document.getElementById('my-rank-label');
+  const claim = document.getElementById('rank-claim-area');
+
+  // quantas vitórias faltam pro Top 3
+  function gapToTop3Html(){
+    if(!ACC) return '';
+    if(myRankPos && myRankPos<=3){
+      return '<div style="font-size:12px;color:#2a8a4a;margin-top:6px">Você está no Top 3! 🎉</div>';
+    }
+    // vitórias do 3º (ou do último se tiver menos de 3)
+    let thirdWins = 0;
+    if(cachedRanking.length>=3) thirdWins = cachedRanking[2].wins||0;
+    else if(cachedRanking.length>0) thirdWins = cachedRanking[cachedRanking.length-1].wins||0;
+    const need = Math.max(0, thirdWins - myWins + 1);
+    if(cachedRanking.length < 3){
+      // ainda há vaga no top 3
+      return '<div style="font-size:12px;color:var(--ink-soft);margin-top:6px">Ainda há vaga no Top 3. Com mais vitórias você sobe!</div>';
+    }
+    return '<div style="font-size:13px;color:var(--ink-soft);margin-top:6px">Faltam <b style="color:var(--accent-dark)">'+need+'</b> vitória(s) para alcançar o Top 3<br><span style="font-size:11px">(3º lugar tem '+thirdWins+' vitórias · você tem '+myWins+')</span></div>';
+  }
+
+  function posLabel(n){
+    if(!n) return '—';
+    const ord = {1:'1º',2:'2º',3:'3º',4:'4º',5:'5º',6:'6º',7:'7º',8:'8º',9:'9º',10:'10º'};
+    return (ord[n]||(n+'º'))+' lugar';
+  }
+
+  if(lab){
+    if(myRankPos){
+      lab.textContent = posLabel(myRankPos) + (myRankPos<=3?' 🎉 Top 3!':'');
+    } else {
+      lab.textContent = 'Sem posição ainda';
+    }
+  }
+
+  if(claim){
+    let html = gapToTop3Html();
+    if(ACC && myRankPos && myRankPos<=3){
+      const prize = RANK_PRIZES[myRankPos];
+      const claimed = (ACC.rankPrizesClaimed||[]).indexOf(myRankPos)>=0;
+      if(claimed){
+        html += '<div style="font-size:12px;color:#2a8a4a;margin-top:6px">✓ Prêmio do Top '+myRankPos+' já resgatado</div>';
+      } else {
+        html += '<div style="margin-top:8px"><button class="btn small" onclick="claimRankPrize()">Resgatar prêmio Top '+myRankPos+': 🪙 '+prize+'</button></div>';
+      }
+    }
+    claim.innerHTML = html;
+  }
+
   if(!cachedRanking.length){
     listEl.innerHTML = '<p style="text-align:center;color:var(--ink-soft);font-size:13px">Carregando ranking...</p>';
   } else {
@@ -1058,39 +1116,12 @@ function renderRanking(){
         (prize?'<div class="rank-prize">'+prize+'</div>':'');
       listEl.appendChild(div);
     });
-    if(cachedRanking.length===1){
-      const tip=document.createElement('p');
-      tip.style.cssText='text-align:center;font-size:12px;color:var(--ink-soft);margin:8px 0 0';
-      tip.textContent='Só você no ranking por enquanto. Quando outros jogadores entrarem com a mesma conta Firebase, eles aparecem aqui.';
-      listEl.appendChild(tip);
-    } else {
-      const tip=document.createElement('p');
-      tip.style.cssText='text-align:center;font-size:11px;color:var(--ink-soft);margin:8px 0 0';
-      tip.textContent=cachedRanking.length+' jogadores no ranking';
-      listEl.appendChild(tip);
-    }
+    const tip=document.createElement('p');
+    tip.style.cssText='text-align:center;font-size:11px;color:var(--ink-soft);margin:8px 0 0';
+    tip.textContent = cachedRanking.length+' jogador(es) · ordenado por vitórias';
+    listEl.appendChild(tip);
   }
 
-  const lab = document.getElementById('my-rank-label');
-  if(lab){
-    if(myRankPos) lab.textContent = '#'+myRankPos + (myRankPos<=3?' 🎉 Top 3!':'');
-    else lab.textContent = ACC ? 'Fora do Top 20' : '—';
-  }
-  const claim = document.getElementById('rank-claim-area');
-  if(claim){
-    claim.innerHTML = '';
-    if(ACC && myRankPos && myRankPos<=3){
-      const prize = RANK_PRIZES[myRankPos];
-      const claimed = (ACC.rankPrizesClaimed||[]).indexOf(myRankPos)>=0;
-      if(claimed){
-        claim.innerHTML = '<div style="font-size:12px;color:#2a8a4a">✓ Prêmio do Top '+myRankPos+' já resgatado</div>';
-      } else {
-        claim.innerHTML = '<button class="btn small" onclick="claimRankPrize()">Resgatar prêmio Top '+myRankPos+': 🪙 '+prize+'</button>';
-      }
-    } else if(ACC){
-      claim.innerHTML = '<div style="font-size:12px;color:var(--ink-soft)">Entre no Top 3 para resgatar prêmios e mudar a cor do jogo</div>';
-    }
-  }
   // theme panel
   const panel = document.getElementById('theme-panel');
   const grid = document.getElementById('theme-grid');
@@ -1117,6 +1148,7 @@ function renderRanking(){
     }
   }
 }
+
 function claimRankPrize(){
   if(!ACC || !myRankPos || myRankPos>3) return;
   const prize = RANK_PRIZES[myRankPos];
