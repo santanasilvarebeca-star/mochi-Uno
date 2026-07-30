@@ -224,9 +224,12 @@ input.room-input{font-size:20px;letter-spacing:5px;text-transform:uppercase}
       </div></div>
       <button class="btn ghost" id="btn-online" onclick="toggleCascade('online')">🌐 Jogar online ▾</button>
       <div class="cascade" id="cascade-online"><div class="cascade-inner">
-        <button class="btn cascade-item ghost" onclick="openHostModal(2)">🏠 Sala para 2 jogadores</button>
-        <button class="btn cascade-item ghost" onclick="openHostModal(3)">🏠 Sala para 3 jogadores</button>
-        <button class="btn cascade-item ghost" onclick="openHostModal(4)">🏠 Sala para 4 jogadores</button>
+        <button class="btn cascade-item ghost" onclick="joinPublicRoom(2)">🌍 Sala pública (2)</button>
+        <button class="btn cascade-item ghost" onclick="joinPublicRoom(3)">🌍 Sala pública (3)</button>
+        <button class="btn cascade-item ghost" onclick="joinPublicRoom(4)">🌍 Sala pública (4)</button>
+        <button class="btn cascade-item ghost" onclick="openHostModal(2)">🏠 Criar sala privada (2)</button>
+        <button class="btn cascade-item ghost" onclick="openHostModal(3)">🏠 Criar sala privada (3)</button>
+        <button class="btn cascade-item ghost" onclick="openHostModal(4)">🏠 Criar sala privada (4)</button>
         <button class="btn cascade-item ghost" onclick="openJoinModal()">🔗 Entrar com código</button>
       </div></div>
       <button class="btn ghost" onclick="openProfile()">👤 Meu perfil</button>
@@ -1162,6 +1165,194 @@ function botTurn(idx){
 }
 
 
+
+let publicRoomUnsub = null;
+let isPublicRoom = false;
+let publicRoomDocId = null;
+
+function setHostModalPublic(maxP, statusHtml){
+  document.getElementById('host-modal').classList.add('show');
+  const hostTitle = document.querySelector('#host-modal h3');
+  if(hostTitle) hostTitle.textContent = '🌍 Sala pública ('+maxP+' jogadores)';
+  const hostP = document.querySelector('#host-modal p');
+  if(hostP) hostP.textContent = 'Procurando jogadores automaticamente — sem código';
+  document.getElementById('room-code').textContent = 'PÚBLICA';
+  document.getElementById('host-status').innerHTML = statusHtml || '<span class="status-dot off"></span> Procurando...';
+}
+
+async function joinPublicRoom(maxP){
+  onlineMaxPlayers = maxP || 2;
+  isPublicRoom = true;
+  publicRoomDocId = null;
+  conns = [];
+  gameMode = 'online';
+  setHostModalPublic(onlineMaxPlayers, '<span class="status-dot off"></span> Procurando sala pública...');
+  showToast('Buscando sala pública...');
+  try {
+    if(fbReady && db){
+      await publicMatchmakeFirestore(onlineMaxPlayers);
+    } else {
+      await publicMatchmakePeerOnly(onlineMaxPlayers);
+    }
+  } catch(e){
+    console.warn(e);
+    document.getElementById('host-status').textContent = 'Erro ao entrar na sala pública';
+    showToast('Não foi possível entrar na sala pública');
+  }
+}
+
+async function publicMatchmakeFirestore(maxP){
+  // 1) Procura sala waiting com vaga (sem orderBy para evitar índice composto)
+  let docs = [];
+  try {
+    const q = await db.collection('publicRooms')
+      .where('status','==','waiting')
+      .limit(20)
+      .get();
+    docs = q.docs.filter(d => (d.data().maxPlayers||2)===maxP);
+  } catch(e){
+    console.warn('public query', e);
+    // fallback total
+    try {
+      const q2 = await db.collection('publicRooms').limit(20).get();
+      docs = q2.docs.filter(d => {
+        const x=d.data();
+        return x.status==='waiting' && (x.maxPlayers||2)===maxP;
+      });
+    } catch(e2){ docs = []; }
+  }
+
+  for(const doc of docs){
+    const data = doc.data();
+    if((data.count||1) >= maxP) continue;
+    // tenta reservar vaga
+    try {
+      let joined = false;
+      await db.runTransaction(async (tx)=>{
+        const snap = await tx.get(doc.ref);
+        if(!snap.exists) return;
+        const d = snap.data();
+        if(d.status!=='waiting' || (d.count||1) >= d.maxPlayers) return;
+        tx.update(doc.ref, { count: (d.count||1)+1 });
+        joined = true;
+      });
+      if(!joined) continue;
+      publicRoomDocId = doc.id;
+      roomCode = data.code;
+      // entra como convidado
+      isHost = false;
+      setHostModalPublic(maxP, '<span class="status-dot on"></span> Sala encontrada! Conectando...');
+      await connectAsGuestToCode(roomCode);
+      return;
+    } catch(e){ console.warn('join public tx', e); }
+  }
+
+  // 2) Nenhuma vaga — cria sala e vira host
+  roomCode = genCode();
+  isHost = true;
+  mySeat = 0;
+  const ref = await db.collection('publicRooms').add({
+    code: roomCode,
+    maxPlayers: maxP,
+    count: 1,
+    status: 'waiting',
+    hostName: (ACC&&ACC.name)||'Host',
+    createdAt: firebase.firestore.FieldValue.serverTimestamp()
+  });
+  publicRoomDocId = ref.id;
+  setHostModalPublic(maxP, '<span class="status-dot on"></span> Sala aberta — aguardando 1/'+maxP+'...');
+  startPublicHostPeer(roomCode);
+  // escuta contagem
+  if(publicRoomUnsub) try{ publicRoomUnsub(); }catch(e){}
+  publicRoomUnsub = ref.onSnapshot(snap=>{
+    if(!snap.exists) return;
+    const d = snap.data();
+    const c = d.count||1;
+    document.getElementById('host-status').innerHTML = '<span class="status-dot on"></span> Aguardando... '+c+'/'+maxP+' jogadores';
+  });
+}
+
+function startPublicHostPeer(code){
+  try{
+    if(peer) try{ peer.destroy(); }catch(e){}
+    peer = new Peer('mochi-'+code, {debug:1});
+    peer.on('open', ()=> updateHostStatus());
+    peer.on('connection', c => setupHostConn(c));
+    peer.on('error', err=>{
+      document.getElementById('host-status').textContent = 'Erro Peer: '+err.type;
+      // se ID ocupado, tenta como guest
+      if(err.type==='unavailable-id'){
+        isHost=false;
+        connectAsGuestToCode(code);
+      }
+    });
+  }catch(e){
+    document.getElementById('host-status').textContent = 'Precisa de internet';
+  }
+}
+
+function connectAsGuestToCode(code){
+  return new Promise((resolve)=>{
+    try{
+      if(peer) try{ peer.destroy(); }catch(e){}
+      peer = new Peer({debug:1});
+      peer.on('open', ()=>{
+        conn = peer.connect('mochi-'+code);
+        conn.on('open', ()=>{
+          document.getElementById('host-status').innerHTML = '<span class="status-dot on"></span> Conectado! Aguarde o início...';
+          showToast('Entrou na sala pública! 🎉');
+          conn.send({type:'hello', name:(ACC?ACC.name:'Jogador')});
+          resolve(true);
+        });
+        conn.on('data', msg => onNetMsg(msg, conn));
+        conn.on('close', ()=>{ showToast('Sala pública encerrada'); quitToLobby(); });
+        // timeout conexão
+        setTimeout(()=>{
+          if(!conn || !conn.open){
+            document.getElementById('host-status').textContent = 'Falhou ao conectar. Tente de novo.';
+            resolve(false);
+          }
+        }, 10000);
+      });
+      peer.on('error', err=>{
+        document.getElementById('host-status').textContent = 'Erro: '+err.type;
+        resolve(false);
+      });
+    }catch(e){
+      document.getElementById('host-status').textContent = 'Precisa de internet';
+      resolve(false);
+    }
+  });
+}
+
+async function publicMatchmakePeerOnly(maxP){
+  // Fallback sem Firestore: tenta IDs públicos fixos
+  const slots = [];
+  for(let i=0;i<8;i++) slots.push('P'+maxP+i+genCode().slice(0,2));
+  setHostModalPublic(maxP, '<span class="status-dot off"></span> Buscando (modo rápido)...');
+  // vira host num slot aleatório; outros tentam conectar em salas conhecidas recentes via localStorage board
+  let board = [];
+  try { board = JSON.parse(safeGet('mochiPublicBoard','[]'))||[]; } catch(e){ board=[]; }
+  board = board.filter(x => x && x.maxP===maxP && (Date.now()-x.t)<120000);
+  // tenta entrar em alguma do board
+  for(const item of board){
+    setHostModalPublic(maxP, '<span class="status-dot on"></span> Sala encontrada, conectando...');
+    isHost=false;
+    roomCode=item.code;
+    const ok = await connectAsGuestToCode(item.code);
+    if(ok) return;
+  }
+  // cria nova
+  roomCode = genCode();
+  isHost = true; mySeat = 0;
+  board.unshift({code:roomCode, maxP:maxP, t:Date.now()});
+  board = board.slice(0,10);
+  try { safeSet('mochiPublicBoard', JSON.stringify(board)); } catch(e){}
+  setHostModalPublic(maxP, '<span class="status-dot on"></span> Aguardando jogadores...');
+  startPublicHostPeer(roomCode);
+}
+
+
 function genCode(){const chars='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';let s='';for(let i=0;i<5;i++)s+=chars[Math.floor(Math.random()*chars.length)];return s}
 
 function updateHostStatus(){
@@ -1230,6 +1421,10 @@ function setupHostConn(c){
 function startOnlineGame(){
   document.getElementById('host-modal').classList.remove('show');
   document.getElementById('join-modal').classList.remove('show');
+  if(isPublicRoom && publicRoomDocId && db){
+    try { db.collection('publicRooms').doc(publicRoomDocId).update({ status:'playing' }); } catch(e){}
+  }
+  if(publicRoomUnsub){ try{ publicRoomUnsub(); }catch(e){} publicRoomUnsub=null; }
   newGame();
   showScreen('game-screen');
   updateCoinUI();
@@ -1349,6 +1544,13 @@ function onNetMsg(msg, fromConn){
 function cancelOnline(){
   document.getElementById('host-modal').classList.remove('show');
   document.getElementById('join-modal').classList.remove('show');
+  if(publicRoomUnsub){ try{ publicRoomUnsub(); }catch(e){} publicRoomUnsub=null; }
+  if(isPublicRoom && publicRoomDocId && db && isHost){
+    try { db.collection('publicRooms').doc(publicRoomDocId).delete(); } catch(e){
+      try { db.collection('publicRooms').doc(publicRoomDocId).update({ status:'closed' }); } catch(e2){}
+    }
+  }
+  isPublicRoom=false; publicRoomDocId=null;
   try{ conns.forEach(x=>{try{x.conn.close()}catch(e){}}); }catch(e){}
   try{if(conn)conn.close()}catch(e){}
   try{if(peer)peer.destroy()}catch(e){}
