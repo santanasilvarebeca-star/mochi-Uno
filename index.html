@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>Mochi Uno</title>
+<title>Mochi</title>
 <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;700;800&family=Nunito:wght@400;700;800&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 <style>
@@ -206,7 +206,7 @@ input.room-input{font-size:20px;letter-spacing:5px;text-transform:uppercase}
 <body>
 <div class="mochi-header">
   <img class="logo" id="logo-img" alt="logo">
-  <h1>Mochi Uno</h1>
+  <h1>Mochi</h1>
 </div>
 
 <!-- LOGIN -->
@@ -314,7 +314,7 @@ input.room-input{font-size:20px;letter-spacing:5px;text-transform:uppercase}
       <div class="player-info"><span class="pill" id="turn-pill">--</span></div>
       <div class="hand" id="player-hand"></div>
       <div class="actions">
-        <button class="btn uno" id="uno-btn" onclick="callUno()">UNO! 🎉</button>
+        <button class="btn uno" id="uno-btn" onclick="callUno()">UMA! 🎉</button>
         <button class="btn ghost small" id="draw-decision-play" style="display:none" onclick="resolveDrawDecision(true)">Jogar carta comprada</button>
         <button class="btn ghost small" id="draw-decision-pass" style="display:none" onclick="resolveDrawDecision(false)">Passar</button>
         <button class="btn ghost small" id="btn-free-pass" style="display:none" onclick="useFreePass()">🎫 Passe</button>
@@ -509,13 +509,13 @@ const SHOP=[
   {id:'luckyDraw',name:'Compra da sorte',desc:'Ao comprar do monte, 30% de chance de vir carta jogável',price:100,icon:'🍀'},
   {id:'stackMaster',name:'Mestre da pilha',desc:'Seu +2 empilha +3 em vez de +2',price:150,icon:'📚'},
   {id:'wildFury',name:'Fúria coringa',desc:'Seu +4 empilha +5 em vez de +4',price:180,icon:'🔥'},
-  {id:'longUno',name:'UNO estendido',desc:'5 segundos para gritar UNO em vez de 2,5',price:60,icon:'⏱️'},
+  {id:'longUno',name:'UMA estendido',desc:'5 segundos para gritar UMA em vez de 2,5',price:60,icon:'⏱️'},
   {id:'coinBoost',name:'Bônus de moedas',desc:'+50% de moedas ao final de cada partida',price:160,icon:'💰'},
   {id:'winBonus',name:'Prêmio de vitória',desc:'+15 moedas extras quando você vence',price:130,icon:'🏆'},
   {id:'consolation',name:'Prêmio de consolação',desc:'+10 moedas extras quando você perde',price:100,icon:'🎁'},
   /* —— 20 novos poderes —— */
-  {id:'autoUno',name:'UNO automático',desc:'Grita UNO sozinho quando fica com 1 carta',price:110,icon:'📣'},
-  {id:'halfPenalty',name:'Pena leve',desc:'Se esquecer o UNO, compra só +1 em vez de +2',price:95,icon:'🪶'},
+  {id:'autoUno',name:'UMA automático',desc:'Grita UMA sozinho quando fica com 1 carta',price:110,icon:'📣'},
+  {id:'halfPenalty',name:'Pena leve',desc:'Se esquecer o UMA, compra só +1 em vez de +2',price:95,icon:'🪶'},
   {id:'luckyPlus',name:'Sorte reforçada',desc:'Compra da sorte sobe para 45% de chance',price:125,icon:'🌈'},
   {id:'startZero',name:'Começar com 0',desc:'Inicia com um 0 de cor aleatória',price:50,icon:'0️⃣'},
   {id:'startPair',name:'Par inicial',desc:'Inicia com duas cartas número iguais (cor aleatória)',price:85,icon:'👯'},
@@ -541,9 +541,9 @@ const MISSIONS=[
   {id:'win1',name:'Primeira vitória',desc:'Vença 1 partida',target:1,stat:'wins',reward:30,icon:'🏆'},
   {id:'win5',name:'Campeão iniciante',desc:'Vença 5 partidas',target:5,stat:'wins',reward:80,icon:'👑'},
   {id:'win15',name:'Lenda Sanrio',desc:'Vença 15 partidas',target:15,stat:'wins',reward:200,icon:'⭐'},
-  {id:'play3',name:'Viciado em UNO',desc:'Jogue 3 partidas',target:3,stat:'games',reward:25,icon:'🎮'},
+  {id:'play3',name:'Viciado em Mochi',desc:'Jogue 3 partidas',target:3,stat:'games',reward:25,icon:'🎮'},
   {id:'play10',name:'Maratonista',desc:'Jogue 10 partidas',target:10,stat:'games',reward:60,icon:'🏃'},
-  {id:'uno3',name:'Gritou UNO!',desc:'Chame UNO 3 vezes',target:3,stat:'unoCalls',reward:40,icon:'📢'},
+  {id:'uno3',name:'Gritou UMA!',desc:'Chame UMA 3 vezes',target:3,stat:'unoCalls',reward:40,icon:'📢'},
   {id:'wild5',name:'Mestre das cores',desc:'Jogue 5 coringas',target:5,stat:'wildsPlayed',reward:45,icon:'🎨'},
   {id:'plus4',name:'Caos total',desc:'Jogue 3 cartas +4',target:3,stat:'plus4Played',reward:50,icon:'💀'},
   {id:'coins200',name:'Rico em laços',desc:'Acumule 200 moedas',target:200,stat:'coins',reward:50,icon:'🪙'},
@@ -946,7 +946,7 @@ function renderPowerTags(){
 function applyTheme(themeId){
   const t = THEMES[themeId] || THEMES.default;
   const r = document.documentElement;
-  // Só UI (fundo, painéis, botões) — NÃO altera cores das cartas UNO
+  // Só UI (fundo, painéis, botões) — NÃO altera cores das cartas
   r.style.setProperty('--bg-a', t.bgA);
   r.style.setProperty('--bg-b', t.bgB);
   r.style.setProperty('--panel', t.panel);
@@ -1519,12 +1519,12 @@ function advanceTurn(card){
 function checkUnoAfterPlay(playerIdx){
   const p=G.players[playerIdx];clearTimeout(G.unoTimer);
   if(p.hand.length===1){
-    if(p.isBot) showBotBubble(playerIdx-1,'UNO!');
+    if(p.isBot) showBotBubble(playerIdx-1,'UMA!');
     else if(playerIdx===mySeat||gameMode==='bots'){
       if(seatHasPower(playerIdx,'autoUno') && (playerIdx===localSeat() || (gameMode==='bots'&&playerIdx===0))){
         G.unoCalled=true;
         document.getElementById('uno-btn').classList.remove('show');
-        showToast('📣 UNO automático!');
+        showToast('📣 UMA automático!');
         if(ACC){ACC.unoCalls=(ACC.unoCalls||0)+1;saveAccounts()}
         return;
       }
@@ -1533,7 +1533,7 @@ function checkUnoAfterPlay(playerIdx){
       G.unoTimer=setTimeout(()=>{
         if(!G.unoCalled&&G.players[playerIdx].hand.length===1&&!G.gameOver){
           const pen = seatHasPower(playerIdx,'halfPenalty') ? 1 : 2;
-          drawCards(playerIdx,pen);showToast('Esqueceu o UNO! +'+pen+' carta'+(pen>1?'s':'')+' 😝');render();
+          drawCards(playerIdx,pen);showToast('Esqueceu o UMA! +'+pen+' carta'+(pen>1?'s':'')+' 😝');render();
           if(gameMode==='online'&&isHost)syncFullState();
         }
         document.getElementById('uno-btn').classList.remove('show');
@@ -1541,7 +1541,7 @@ function checkUnoAfterPlay(playerIdx){
     }
   } else document.getElementById('uno-btn').classList.remove('show');
 }
-function callUno(){G.unoCalled=true;document.getElementById('uno-btn').classList.remove('show');showToast('UNO! 🎉');if(ACC){ACC.unoCalls=(ACC.unoCalls||0)+1;saveAccounts()}if(gameMode==='online')sendMsg({type:'uno'})}
+function callUno(){G.unoCalled=true;document.getElementById('uno-btn').classList.remove('show');showToast('UMA! 🎉');if(ACC){ACC.unoCalls=(ACC.unoCalls||0)+1;saveAccounts()}if(gameMode==='online')sendMsg({type:'uno'})}
 
 function rewardCoins(won){
   // Garante conta local mesmo se Firebase falhar
